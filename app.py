@@ -16,6 +16,11 @@ from typing import Any, Iterator
 import pandas as pd
 import streamlit as st
 
+try:
+    import libsql
+except ImportError:  # Local fallback when Turso credentials are not configured.
+    libsql = None
+
 
 APP_DIR = Path(__file__).resolve().parent
 DB_PATH = Path(os.getenv("LOTTERY_DB_PATH", APP_DIR / "lottery.db"))
@@ -47,16 +52,34 @@ st.set_page_config(
 
 
 @contextmanager
-def db_connection() -> Iterator[sqlite3.Connection]:
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH, timeout=15, isolation_level=None)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA busy_timeout=15000")
+def db_connection() -> Iterator[Any]:
+    db_url = get_config_value("TURSO_DATABASE_URL", "LIBSQL_URL")
+    db_token = get_config_value("TURSO_AUTH_TOKEN", "LIBSQL_AUTH_TOKEN")
+    if db_url and db_token and libsql is not None:
+        conn = libsql.connect(database=db_url, auth_token=db_token)
+    else:
+        DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(DB_PATH, timeout=15, isolation_level=None)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=15000")
     try:
         yield conn
     finally:
         conn.close()
+
+
+def get_config_value(*names: str) -> str:
+    for name in names:
+        value = os.getenv(name)
+        if value:
+            return value
+        try:
+            if name in st.secrets:
+                return str(st.secrets[name])
+        except Exception:
+            pass
+    return ""
 
 
 def pin_hash(pin: str) -> str:
@@ -65,13 +88,14 @@ def pin_hash(pin: str) -> str:
 
 def init_database() -> None:
     with db_connection() as conn:
-        conn.executescript(
+        schema_statements = [
             """
             CREATE TABLE IF NOT EXISTS settings (
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL
-            );
-
+            )
+            """,
+            """
             CREATE TABLE IF NOT EXISTS prizes (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL,
@@ -82,8 +106,9 @@ def init_database() -> None:
                 enabled INTEGER NOT NULL DEFAULT 1,
                 is_win INTEGER NOT NULL DEFAULT 1,
                 result_text TEXT NOT NULL DEFAULT ''
-            );
-
+            )
+            """,
+            """
             CREATE TABLE IF NOT EXISTS draws (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 customer_no INTEGER NOT NULL,
@@ -93,10 +118,16 @@ def init_database() -> None:
                 prize_name TEXT NOT NULL,
                 prize_emoji TEXT NOT NULL,
                 is_win INTEGER NOT NULL,
-                created_at TEXT NOT NULL
-            );
-            """
-        )
+                created_at TEXT NOT NULL,
+                redeemed INTEGER NOT NULL DEFAULT 0,
+                redeemed_at TEXT DEFAULT ''
+            )
+            """,
+        ]
+        for statement in schema_statements:
+            conn.execute(statement)
+        ensure_column(conn, "draws", "redeemed", "INTEGER NOT NULL DEFAULT 0")
+        ensure_column(conn, "draws", "redeemed_at", "TEXT DEFAULT ''")
 
         defaults = {
             "activity_name": "藝起開鍋抽好禮",
@@ -124,6 +155,12 @@ def init_database() -> None:
                 """,
                 DEFAULT_PRIZES,
             )
+
+
+def ensure_column(conn: Any, table: str, column: str, definition: str) -> None:
+    existing = [str(row[1]) for row in conn.execute(f"PRAGMA table_info({table})").fetchall()]
+    if column not in existing:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
 
 def get_setting(key: str, default: str = "") -> str:
@@ -287,9 +324,11 @@ def perform_draw(pot_name: str) -> dict[str, Any]:
                     created_at,
                 ),
             )
+            draw_id = int(conn.execute("SELECT last_insert_rowid()").fetchone()[0])
             conn.execute("COMMIT")
 
             return {
+                "id": draw_id,
                 "customer_no": customer_no,
                 "draw_no": new_used,
                 "pot_name": pot_name,
@@ -391,12 +430,66 @@ def all_draws(limit: int = 500) -> pd.DataFrame:
         rows = conn.execute(
             """
             SELECT id, created_at, customer_no, draw_no, pot_name, prize_emoji,
-                   prize_name, CASE WHEN is_win = 1 THEN '是' ELSE '否' END AS is_win
+                   prize_name, CASE WHEN is_win = 1 THEN '是' ELSE '否' END AS is_win,
+                   redeemed,
+                   CASE
+                       WHEN is_win = 0 THEN '免核銷'
+                       WHEN redeemed = 1 THEN '已核銷'
+                       ELSE '未核銷'
+                   END AS redeem_status,
+                   redeemed_at
             FROM draws ORDER BY id DESC LIMIT ?
             """,
             (limit,),
         ).fetchall()
     return pd.DataFrame([dict(row) for row in rows])
+
+
+def set_draw_redeemed(draw_id: int, redeemed: bool) -> None:
+    with db_connection() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            row = conn.execute("SELECT is_win FROM draws WHERE id = ?", (draw_id,)).fetchone()
+            if row is None:
+                raise ValueError("找不到這筆抽獎紀錄。")
+            if int(row["is_win"]) != 1:
+                raise ValueError("未中獎紀錄不需要核銷。")
+            conn.execute(
+                "UPDATE draws SET redeemed = ?, redeemed_at = ? WHERE id = ?",
+                (
+                    1 if redeemed else 0,
+                    datetime.now().astimezone().isoformat(timespec="seconds") if redeemed else "",
+                    draw_id,
+                ),
+            )
+            conn.execute("COMMIT")
+        except Exception:
+            conn.execute("ROLLBACK")
+            raise
+
+
+def prize_summary() -> pd.DataFrame:
+    prizes = load_prizes(include_disabled=True)
+    rows = []
+    for prize in prizes:
+        quantity = int(prize["quantity"])
+        issued = int(prize["issued"])
+        remaining = "不限量" if quantity == 0 else max(0, quantity - issued)
+        status = "停用"
+        if int(prize["enabled"]) == 1:
+            status = "抽完" if quantity > 0 and issued >= quantity else "可抽"
+        rows.append(
+            {
+                "獎品": f"{prize['emoji']} {prize['name']}",
+                "狀態": status,
+                "機率%": float(prize["probability"]),
+                "總量": "不限量" if quantity == 0 else quantity,
+                "已抽出": issued,
+                "剩餘": remaining,
+                "需核銷": "是" if int(prize["is_win"]) == 1 else "否",
+            }
+        )
+    return pd.DataFrame(rows)
 
 
 def save_prizes(edited: pd.DataFrame) -> None:
@@ -600,6 +693,20 @@ def apply_global_styles() -> None:
             filter:saturate(1.08) brightness(1.04);
             box-shadow:0 14px 30px rgba(0,0,0,.42), inset 0 0 0 2px rgba(255,255,255,.2);
         }
+        .pot-link:active .pot-card {
+            transform:scale(.97);
+            filter:brightness(1.16) saturate(1.18);
+        }
+        .pot-card:before {
+            content:"";
+            position:absolute;
+            inset:-35%;
+            background:linear-gradient(115deg, transparent 35%, rgba(255,255,255,.7) 48%, transparent 62%);
+            transform:translateX(-75%) rotate(8deg);
+            animation:card-shine 2.8s ease-in-out infinite;
+            pointer-events:none;
+            z-index:2;
+        }
         .pot-card:after {
             content:"";
             position:absolute;
@@ -607,6 +714,7 @@ def apply_global_styles() -> None:
             background:linear-gradient(180deg, rgba(255,255,255,.08), transparent 34%, rgba(0,0,0,.08));
             pointer-events:none;
         }
+        @keyframes card-shine { 0%,55%{transform:translateX(-75%) rotate(8deg)} 82%,100%{transform:translateX(75%) rotate(8deg)} }
         .poster-title {
             position:relative;
             z-index:4;
@@ -777,6 +885,25 @@ def apply_global_styles() -> None:
         .result-kicker { color:#d3b98e; font-weight:700; letter-spacing:.13em; margin-top:.6rem; }
         .result-name { color:#ffe2a8; font-size:clamp(2rem,6vw,3.6rem); font-weight:950; margin:.25rem 0 .65rem; text-shadow:0 2px 0 #77261c,0 0 24px rgba(231,78,55,.4); }
         .result-copy { color:#fff2dc; font-size:1.18rem; }
+        .ticket-meta {
+            width:fit-content;
+            margin:1rem auto 0;
+            padding:.45rem .85rem;
+            border-radius:999px;
+            background:rgba(255,243,205,.12);
+            color:#ffe7b2;
+            border:1px solid rgba(255,230,170,.35);
+            font-weight:800;
+        }
+        .redeem-hint {
+            margin-top:.75rem;
+            color:#fff7e8;
+            font-size:1.05rem;
+            font-weight:800;
+        }
+        .stock-ok { color:#52d273; font-weight:900; }
+        .stock-empty { color:#ff6d5f; font-weight:900; }
+        .stock-off { color:#c8bba8; font-weight:900; }
         .summary-card { max-width:720px; margin:1rem auto; padding:1.2rem 1.3rem; border-radius:22px; background:rgba(27,19,16,.88); border:1px solid rgba(230,174,86,.25); }
         .summary-row { display:flex; align-items:center; gap:.8rem; padding:.65rem .3rem; border-bottom:1px dashed rgba(255,255,255,.12); }
         .summary-row:last-child{border-bottom:0}.summary-row .emoji{font-size:1.8rem}.summary-row .label{font-weight:750;color:#ffe5b6}
@@ -865,6 +992,8 @@ def opening_animation(pot_name: str, theme: dict[str, str]) -> str:
 
 def render_result(result: dict[str, Any]) -> None:
     kicker = "恭喜中獎" if result["is_win"] else "謝謝參加"
+    ticket_no = f"{int(result.get('customer_no', 0)):04d}-{int(result.get('draw_no', 0)):02d}-{int(result.get('id', 0)):06d}"
+    redeem_hint = "請將此畫面交給店員核銷" if result["is_win"] else "感謝參加，請交還平板"
     st.markdown(
         f"""
         <div class="result-card">
@@ -872,6 +1001,8 @@ def render_result(result: dict[str, Any]) -> None:
             <div class="result-kicker">{kicker}・{escape_html(result['pot_name'])}</div>
             <div class="result-name">{escape_html(result['name'])}</div>
             <div class="result-copy">{escape_html(result['result_text'])}</div>
+            <div class="ticket-meta">券號 {escape_html(ticket_no)}・第 {escape_html(result['customer_no'])} 位客人</div>
+            <div class="redeem-hint">{escape_html(redeem_hint)}</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -1036,6 +1167,9 @@ def render_admin_page() -> None:
     st.divider()
     st.markdown("### 獎品、機率與數量")
     st.caption("數量填 0 代表不限量。啟用獎項的機率合計必須為 100%。庫存用完後，該獎項會自動停止抽出。")
+    stock_df = prize_summary()
+    if not stock_df.empty:
+        st.dataframe(stock_df, hide_index=True, width="stretch")
     prizes = load_prizes(include_disabled=True)
     prize_df = pd.DataFrame(prizes)
     if prize_df.empty:
@@ -1064,7 +1198,10 @@ def render_admin_page() -> None:
         key="prize_editor",
     )
     enabled_probability = float(edited.loc[edited["enabled"] == True, "probability"].fillna(0).sum()) if not edited.empty else 0.0  # noqa: E712
-    st.info(f"目前啟用機率合計：{enabled_probability:.2f}%")
+    if abs(enabled_probability - 100.0) <= 0.001:
+        st.success(f"目前啟用機率合計：{enabled_probability:.2f}%")
+    else:
+        st.error(f"目前啟用機率合計：{enabled_probability:.2f}%，必須等於 100%。")
     if st.button("儲存獎品設定", width="stretch", type="primary"):
         try:
             save_prizes(edited)
@@ -1088,9 +1225,31 @@ def render_admin_page() -> None:
                 "prize_emoji": "圖示",
                 "prize_name": "抽獎結果",
                 "is_win": "中獎",
+                "redeem_status": "核銷狀態",
+                "redeemed_at": "核銷時間",
             }
-        ).drop(columns=["id"])
+        ).drop(columns=["id", "redeemed"])
         st.dataframe(display_records, hide_index=True, width="stretch")
+        st.markdown("#### 中獎核銷")
+        redeem_rows = records[(records["is_win"] == "是")].head(20)
+        if redeem_rows.empty:
+            st.info("目前沒有可核銷的中獎紀錄。")
+        else:
+            for _, row in redeem_rows.iterrows():
+                cols = st.columns([3, 2, 2, 2])
+                cols[0].markdown(
+                    f"第 {int(row['customer_no'])} 位 / {row['prize_emoji']} {row['prize_name']}"
+                )
+                cols[1].markdown(str(row["redeem_status"]))
+                if int(row["redeemed"]) == 1:
+                    if cols[2].button("撤銷核銷", key=f"unredeem_{int(row['id'])}"):
+                        set_draw_redeemed(int(row["id"]), False)
+                        st.rerun()
+                else:
+                    if cols[2].button("核銷", key=f"redeem_{int(row['id'])}", type="primary"):
+                        set_draw_redeemed(int(row["id"]), True)
+                        st.rerun()
+                cols[3].caption(str(row["created_at"]))
         csv_buffer = io.StringIO()
         display_records.to_csv(csv_buffer, index=False, quoting=csv.QUOTE_MINIMAL)
         st.download_button(

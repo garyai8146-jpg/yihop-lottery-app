@@ -483,9 +483,9 @@ def prize_summary() -> pd.DataFrame:
                 "獎品": f"{prize['emoji']} {prize['name']}",
                 "狀態": status,
                 "機率%": float(prize["probability"]),
-                "總量": "不限量" if quantity == 0 else quantity,
-                "已抽出": issued,
-                "剩餘": remaining,
+                "總量": "不限量" if quantity == 0 else str(quantity),
+                "已抽出": str(issued),
+                "剩餘": str(remaining),
                 "需核銷": "是" if int(prize["is_win"]) == 1 else "否",
             }
         )

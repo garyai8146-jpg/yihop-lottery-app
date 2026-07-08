@@ -944,32 +944,7 @@ def render_admin_link() -> None:
     )
 
 
-def admin_authenticated() -> bool:
-    return bool(st.session_state.get("admin_authenticated", False))
-
-
-def render_admin_login() -> None:
-    st.markdown("## 管理後台")
-    st.caption("初始 PIN：1688。首次使用後請立即修改。")
-    with st.form("admin_login", clear_on_submit=True):
-        pin = st.text_input("管理 PIN", type="password", max_chars=20)
-        submitted = st.form_submit_button("登入", width="stretch")
-    if submitted:
-        if pin_hash(pin) == get_setting("admin_pin_hash"):
-            st.session_state.admin_authenticated = True
-            st.rerun()
-        else:
-            st.error("PIN 錯誤。")
-    if st.button("← 返回抽獎頁"):
-        st.query_params.clear()
-        st.rerun()
-
-
 def render_admin_page() -> None:
-    if not admin_authenticated():
-        render_admin_login()
-        return
-
     top_left, top_right = st.columns([4, 1])
     with top_left:
         st.markdown("# 藝鍋物抽獎管理後台")
@@ -1018,29 +993,20 @@ def render_admin_page() -> None:
     with st.form("activity_settings"):
         activity_name = st.text_input("活動名稱", value=settings.get("activity_name", "藝起開鍋抽好禮"))
         activity_subtitle = st.text_input("副標題", value=settings.get("activity_subtitle", "選一鍋，讓今天的好運滾起來"))
-        setting_cols = st.columns(2)
-        with setting_cols[0]:
-            pot_count = st.radio(
-                "顯示幾個火鍋",
-                options=[2, 4],
-                index=0 if settings.get("pot_count") == "2" else 1,
-                horizontal=True,
-            )
-        with setting_cols[1]:
-            draws_per_customer = st.number_input(
-                "每位客人可抽次數",
-                min_value=1,
-                max_value=20,
-                value=max(1, int(settings.get("draws_per_customer", "1"))),
-                step=1,
-            )
+        draws_per_customer = st.number_input(
+            "每位客人可抽次數",
+            min_value=1,
+            max_value=20,
+            value=max(1, int(settings.get("draws_per_customer", "1"))),
+            step=1,
+        )
         save_activity = st.form_submit_button("儲存活動設定", width="stretch")
     if save_activity:
         set_settings(
             {
                 "activity_name": activity_name.strip() or "藝起開鍋抽好禮",
                 "activity_subtitle": activity_subtitle.strip() or "選一鍋，讓今天的好運滾起來",
-                "pot_count": int(pot_count),
+                "pot_count": 4,
                 "draws_per_customer": int(draws_per_customer),
             }
         )
@@ -1116,32 +1082,12 @@ def render_admin_page() -> None:
         )
 
     st.divider()
-    with st.expander("安全與重設"):
-        st.markdown("#### 修改管理 PIN")
-        with st.form("change_pin"):
-            new_pin = st.text_input("新 PIN", type="password", max_chars=20)
-            confirm_pin = st.text_input("再次輸入新 PIN", type="password", max_chars=20)
-            pin_submit = st.form_submit_button("修改 PIN")
-        if pin_submit:
-            if len(new_pin) < 4:
-                st.error("PIN 至少需要 4 碼。")
-            elif new_pin != confirm_pin:
-                st.error("兩次輸入的 PIN 不一致。")
-            else:
-                set_settings({"admin_pin_hash": pin_hash(new_pin)})
-                st.success("管理 PIN 已修改。")
-
-        st.markdown("#### 清空活動資料")
+    with st.expander("重設資料"):
         confirm_reset = st.checkbox("我了解這會清除所有抽獎紀錄，並將所有已抽出數量歸零。")
         if st.button("清空並重新開始", disabled=not confirm_reset):
             reset_activity()
             st.session_state.pop("last_result", None)
             st.success("活動資料已重設。")
-            st.rerun()
-
-        if st.button("登出後台"):
-            st.session_state.admin_authenticated = False
-            st.query_params.clear()
             st.rerun()
 
 

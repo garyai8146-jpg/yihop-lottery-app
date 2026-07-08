@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import base64
 import hashlib
 import io
 import os
@@ -22,10 +23,10 @@ DEFAULT_ADMIN_PIN = os.getenv("LOTTERY_ADMIN_PIN", "1688")
 TAIPEI_TZ_LABEL = "Asia/Taipei"
 
 POT_THEMES = [
-    {"name": "好運紅鍋", "icon": "福", "accent": "#e54532", "glow": "rgba(217,68,50,.46)", "poster_a": "#ff6b57", "poster_b": "#e53b2d", "poster_c": "#ffb03c"},
-    {"name": "黃金旺鍋", "icon": "旺", "accent": "#f0a92d", "glow": "rgba(230,170,60,.45)", "poster_a": "#ffb321", "poster_b": "#ff7a18", "poster_c": "#ffd157"},
-    {"name": "招財辣鍋", "icon": "辣", "accent": "#e6aa3c", "glow": "rgba(239,91,56,.48)", "poster_a": "#ffe05e", "poster_b": "#f6a51f", "poster_c": "#f05622"},
-    {"name": "幸福暖鍋", "icon": "暖", "accent": "#264973", "glow": "rgba(216,139,81,.46)", "poster_a": "#173f6d", "poster_b": "#0e2749", "poster_c": "#f0a928"},
+    {"name": "好運紅鍋", "icon": "福", "accent": "#e54532", "glow": "rgba(217,68,50,.46)", "poster_a": "#ff6b57", "poster_b": "#e53b2d", "poster_c": "#ffb03c", "image": "assets/pot_card_0.webp"},
+    {"name": "黃金旺鍋", "icon": "旺", "accent": "#f0a92d", "glow": "rgba(230,170,60,.45)", "poster_a": "#ffb321", "poster_b": "#ff7a18", "poster_c": "#ffd157", "image": "assets/pot_card_1.webp"},
+    {"name": "招財辣鍋", "icon": "辣", "accent": "#e6aa3c", "glow": "rgba(239,91,56,.48)", "poster_a": "#ffe05e", "poster_b": "#f6a51f", "poster_c": "#f05622", "image": "assets/pot_card_2.webp"},
+    {"name": "幸福暖鍋", "icon": "暖", "accent": "#264973", "glow": "rgba(216,139,81,.46)", "poster_a": "#173f6d", "poster_b": "#0e2749", "poster_c": "#f0a928", "image": "assets/pot_card_3.webp"},
 ]
 
 DEFAULT_PRIZES = [
@@ -506,8 +507,8 @@ def apply_global_styles() -> None:
         [data-testid="stToolbar"], #MainMenu, footer { visibility: hidden; }
         [data-testid="stSidebar"] { background: #15100e; }
         .block-container {
-            max-width: 1180px;
-            padding-top: .45rem;
+            max-width: 1160px;
+            padding-top: .25rem;
             padding-bottom: .65rem;
         }
         h1, h2, h3, p, label, .stMarkdown { color: var(--cream); }
@@ -532,8 +533,8 @@ def apply_global_styles() -> None:
         }
         .event-title {
             text-align:center;
-            margin:0 0 .05rem;
-            font-size: clamp(1.45rem, 2.5vw, 2.15rem);
+            margin:0 0 .03rem;
+            font-size: clamp(1.15rem, 2vw, 1.6rem);
             letter-spacing:.12em;
             font-weight:900;
             color:#ffe6b5;
@@ -549,8 +550,8 @@ def apply_global_styles() -> None:
         }
         .status-pill {
             width:fit-content;
-            margin:.05rem auto .18rem;
-            padding:.24rem .65rem;
+            margin:.03rem auto .12rem;
+            padding:.18rem .58rem;
             border:1px solid rgba(227,174,86,.35);
             border-radius:999px;
             background:rgba(20,14,12,.7);
@@ -558,22 +559,36 @@ def apply_global_styles() -> None:
             font-weight:700;
             box-shadow: inset 0 0 20px rgba(227,174,86,.06);
         }
+        .lottery-prompt {
+            display:none;
+        }
+        .pot-grid {
+            width:min(95vw, 586px);
+            margin:.15rem auto 0;
+            display:grid;
+            grid-template-columns:repeat(2, minmax(0, 1fr));
+            gap:6px;
+        }
         .pot-card {
             position:relative;
-            height: min(36vh, 260px);
-            min-height:210px;
-            padding:18px 14px 14px;
-            margin:.12rem 0 .1rem;
+            aspect-ratio:1 / 1;
+            height:auto;
+            min-height:0;
+            padding:0;
+            margin:0;
             overflow:hidden;
             border-radius:8px;
-            border:3px solid rgba(255,236,190,.92);
-            background:
-                radial-gradient(circle at 14% 18%, rgba(255,255,255,.34), transparent 2.6%),
-                radial-gradient(circle at 84% 12%, rgba(255,255,255,.3), transparent 2%),
-                linear-gradient(150deg, var(--poster-a), var(--poster-b) 54%, var(--poster-c));
-            box-shadow:0 10px 24px rgba(0,0,0,.35), inset 0 0 0 2px rgba(255,255,255,.15);
+            border:3px solid rgba(255,248,223,.95);
+            background:#130d09;
+            box-shadow:0 10px 24px rgba(0,0,0,.35);
             text-align:center;
             transition:transform .16s ease, filter .16s ease, box-shadow .16s ease;
+        }
+        .pot-card img {
+            width:100%;
+            height:100%;
+            display:block;
+            object-fit:cover;
         }
         .pot-link {
             display:block;
@@ -585,25 +600,11 @@ def apply_global_styles() -> None:
             filter:saturate(1.08) brightness(1.04);
             box-shadow:0 14px 30px rgba(0,0,0,.42), inset 0 0 0 2px rgba(255,255,255,.2);
         }
-        .pot-card:before {
-            content:"";
-            position:absolute;
-            left:-8%;
-            right:-8%;
-            top:35%;
-            height:35%;
-            transform:rotate(-8deg);
-            background:rgba(151,28,22,.78);
-            box-shadow:0 10px 0 rgba(255,196,62,.28);
-            opacity:.9;
-        }
         .pot-card:after {
             content:"";
             position:absolute;
             inset:0;
-            background:
-                radial-gradient(circle at 22% 85%, rgba(10,8,7,.26), transparent 20%),
-                linear-gradient(90deg, rgba(255,255,255,.12), transparent 28%, rgba(0,0,0,.16));
+            background:linear-gradient(180deg, rgba(255,255,255,.08), transparent 34%, rgba(0,0,0,.08));
             pointer-events:none;
         }
         .poster-title {
@@ -736,8 +737,9 @@ def apply_global_styles() -> None:
             box-shadow:0 12px 28px rgba(213,70,49,.3);
         }
         .opening-stage {
-            height: min(36vh, 260px);
-            min-height:210px;
+            aspect-ratio:1 / 1;
+            height:auto;
+            min-height:0;
             display:flex;
             flex-direction:column;
             justify-content:center;
@@ -760,14 +762,16 @@ def apply_global_styles() -> None:
         .opening-text { color:#fff7d8; font-size:1.45rem; font-weight:950; letter-spacing:.12em; text-shadow:0 3px 0 rgba(0,0,0,.25); animation:blink .75s ease-in-out infinite alternate; }
         @keyframes blink{to{opacity:.58}}
         .result-card {
-            max-width:720px;
-            margin:1rem auto;
-            padding:2rem 1.4rem;
+            max-width:780px;
+            margin:.8rem auto 1rem;
+            padding:2.1rem 1.4rem 1.6rem;
             text-align:center;
-            border-radius:30px;
-            border:2px solid rgba(229,174,82,.56);
-            background:linear-gradient(155deg, rgba(67,29,22,.94), rgba(17,12,10,.96));
-            box-shadow:0 26px 58px rgba(0,0,0,.42),0 0 38px rgba(220,72,50,.18),inset 0 1px 0 rgba(255,255,255,.08);
+            border-radius:22px;
+            border:4px solid rgba(255,239,184,.92);
+            background:
+                radial-gradient(circle at 50% 10%, rgba(255,218,88,.42), transparent 32%),
+                linear-gradient(155deg, rgba(202,49,33,.96), rgba(90,22,17,.98) 48%, rgba(17,12,10,.98));
+            box-shadow:0 24px 58px rgba(0,0,0,.45),0 0 38px rgba(220,72,50,.22),inset 0 1px 0 rgba(255,255,255,.14);
         }
         .result-emoji { font-size:5rem; line-height:1.05; filter:drop-shadow(0 8px 12px rgba(0,0,0,.35)); }
         .result-kicker { color:#d3b98e; font-weight:700; letter-spacing:.13em; margin-top:.6rem; }
@@ -782,7 +786,7 @@ def apply_global_styles() -> None:
         .tiny-admin { text-align:center; margin-top:1.5rem; opacity:.58; }
         .tiny-admin a { color:#cdbb9d; text-decoration:none; font-size:.9rem; }
         @media(max-width:700px){
-            .block-container{padding-left:.45rem;padding-right:.45rem}.event-title{font-size:1.25rem}.event-subtitle{display:none}.status-pill{font-size:.78rem}.pot-card,.opening-stage{height:35vh;min-height:190px}.poster-title{font-size:1.75rem;-webkit-text-stroke:1.2px #2b120d}.poster-start{font-size:1.55rem}.poster-food{width:82%;bottom:-20px}.poster-side{width:62px;height:105px}.poster-herb{width:72px;height:92px}
+            .block-container{padding-left:.25rem;padding-right:.25rem}.event-title{font-size:1rem}.event-subtitle{display:none}.status-pill{font-size:.72rem}.pot-grid{width:min(98vw,610px);gap:4px}.poster-title{font-size:1.75rem;-webkit-text-stroke:1.2px #2b120d}.poster-start{font-size:1.55rem}.poster-food{width:82%;bottom:-20px}.poster-side{width:62px;height:105px}.poster-herb{width:72px;height:92px}
         }
         </style>
         """,
@@ -813,14 +817,18 @@ def escape_html(value: Any) -> str:
     )
 
 
+@st.cache_data
+def image_data_uri(relative_path: str) -> str:
+    path = APP_DIR / relative_path
+    encoded = base64.b64encode(path.read_bytes()).decode("ascii")
+    return f"data:image/webp;base64,{encoded}"
+
+
 def pot_card(theme: dict[str, str], href: str | None = None) -> str:
+    image_src = image_data_uri(theme["image"])
     card = f"""
     <div class="pot-card" style="--accent:{theme['accent']};--glow:{theme['glow']};--poster-a:{theme['poster_a']};--poster-b:{theme['poster_b']};--poster-c:{theme['poster_c']}">
-        <div class="poster-title">火鍋抽抽樂</div>
-        <div class="poster-start">START</div>
-        <div class="poster-side"></div>
-        <div class="poster-herb"></div>
-        <div class="poster-food"></div>
+        <img src="{image_src}" alt="{escape_html(theme['name'])} 火鍋抽抽樂 START">
     </div>
     """
     if href:
@@ -874,16 +882,13 @@ def render_customer_summary(customer_no: int) -> None:
 
 
 def render_pot_grid(selected_index: int | None = None) -> None:
-    themes = POT_THEMES[:4]
-    for row_start in range(0, len(themes), 2):
-        columns = st.columns(2, gap="medium")
-        for column_index, theme in enumerate(themes[row_start : row_start + 2]):
-            index = row_start + column_index
-            with columns[column_index]:
-                if selected_index == index:
-                    st.markdown(opening_animation(theme["name"], theme), unsafe_allow_html=True)
-                else:
-                    st.markdown(pot_card(theme, href=f"?draw={index}&t={time.time_ns()}"), unsafe_allow_html=True)
+    cells = []
+    for index, theme in enumerate(POT_THEMES[:4]):
+        if selected_index == index:
+            cells.append(opening_animation(theme["name"], theme))
+        else:
+            cells.append(pot_card(theme, href=f"?draw={index}&t={time.time_ns()}"))
+    st.markdown(f"<div class='pot-grid'>{''.join(cells)}</div>", unsafe_allow_html=True)
 
 
 def render_lottery_page() -> None:
@@ -898,12 +903,13 @@ def render_lottery_page() -> None:
     result = st.session_state.get("last_result")
     if result and int(result.get("customer_no", -1)) == status["customer_no"]:
         render_result(result)
-        time.sleep(2.6)
-        st.session_state.pop("last_result", None)
-        st.session_state.pop("balloons_shown", None)
-        if status["remaining"] <= 0:
-            next_customer()
-        st.rerun()
+        done_label = "完成，下一位客人" if int(result.get("remaining", 0)) <= 0 else "完成，繼續抽"
+        if st.button(done_label, width="stretch", type="primary"):
+            st.session_state.pop("last_result", None)
+            st.session_state.pop("balloons_shown", None)
+            if int(result.get("remaining", 0)) <= 0:
+                next_customer()
+            st.rerun()
         return
 
     if status["remaining"] <= 0:
@@ -911,7 +917,7 @@ def render_lottery_page() -> None:
         st.rerun()
 
     st.markdown(
-        "<h3 style='text-align:center;color:#f6d9a6;letter-spacing:.12em;margin:.05rem 0 .25rem;font-size:1.25rem'>請憑直覺選一鍋</h3>",
+        "<h3 class='lottery-prompt'>請憑直覺選一鍋</h3>",
         unsafe_allow_html=True,
     )
 

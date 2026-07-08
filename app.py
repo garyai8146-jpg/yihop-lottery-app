@@ -785,6 +785,20 @@ def apply_global_styles() -> None:
         [data-testid="stDataFrame"], [data-testid="stDataEditor"] { border-radius:16px; overflow:hidden; }
         .tiny-admin { text-align:center; margin-top:1.5rem; opacity:.58; }
         .tiny-admin a { color:#cdbb9d; text-decoration:none; font-size:.9rem; }
+        .admin-return-link {
+            display:block;
+            width:100%;
+            min-height:2.5rem;
+            line-height:2.5rem;
+            text-align:center;
+            border-radius:8px;
+            border:2px solid rgba(255,245,220,.65);
+            background:linear-gradient(180deg, #f15a38, #9c2118);
+            color:white !important;
+            font-weight:850;
+            text-decoration:none !important;
+            box-shadow:0 6px 14px rgba(0,0,0,.25), inset 0 1px 0 rgba(255,255,255,.22);
+        }
         @media(max-width:700px){
             .block-container{padding-left:.25rem;padding-right:.25rem}.event-title{font-size:1rem}.event-subtitle{display:none}.status-pill{font-size:.72rem}.pot-grid{width:min(98vw,610px);gap:4px}.poster-title{font-size:1.75rem;-webkit-text-stroke:1.2px #2b120d}.poster-start{font-size:1.55rem}.poster-food{width:82%;bottom:-20px}.poster-side{width:62px;height:105px}.poster-herb{width:72px;height:92px}
         }
@@ -955,10 +969,10 @@ def render_admin_page() -> None:
     with top_left:
         st.markdown("# 藝鍋物抽獎管理後台")
     with top_right:
-        if st.button("返回抽獎頁", width="stretch"):
-            st.query_params.clear()
-            st.session_state.pop("last_result", None)
-            st.rerun()
+        st.markdown(
+            "<a class='admin-return-link' href='./?page=lottery' target='_self'>返回抽獎頁</a>",
+            unsafe_allow_html=True,
+        )
 
     status = current_status()
     metric_cols = st.columns(4)
@@ -1101,7 +1115,11 @@ init_database()
 apply_global_styles()
 
 try:
-    admin_mode = str(st.query_params.get("admin", "0")) == "1"
+    page_mode = str(st.query_params.get("page", ""))
+    if page_mode == "lottery":
+        st.session_state.pop("last_result", None)
+        st.session_state.pop("balloons_shown", None)
+    admin_mode = str(st.query_params.get("admin", "0")) == "1" and page_mode != "lottery"
 except Exception:
     admin_mode = False
 

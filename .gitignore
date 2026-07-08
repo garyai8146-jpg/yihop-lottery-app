@@ -1,0 +1,9 @@
+.venv/
+__pycache__/
+*.py[cod]
+*.log
+.streamlit/secrets.toml
+
+# Local runtime database. Streamlit Cloud can recreate defaults on first start.
+lottery.db
+lottery.db-*

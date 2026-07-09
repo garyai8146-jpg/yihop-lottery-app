@@ -707,9 +707,8 @@ def apply_global_styles() -> None:
             padding:0;
             margin:0;
             overflow:hidden;
-            border-radius:8px 8px 0 0;
+            border-radius:8px;
             border:3px solid rgba(255,248,223,.95);
-            border-bottom:0;
             background:#130d09;
             box-shadow:0 10px 24px rgba(0,0,0,.35);
             text-align:center;
@@ -737,6 +736,7 @@ def apply_global_styles() -> None:
             filter:brightness(1.16) saturate(1.18);
         }
         .pot-tile {
+            position:relative;
             overflow:hidden;
             border-radius:8px;
             margin-bottom:.85rem;
@@ -744,22 +744,30 @@ def apply_global_styles() -> None:
             box-shadow:0 10px 24px rgba(0,0,0,.35);
         }
         .pot-tile div[data-testid="stButton"] {
+            position:absolute;
+            inset:0;
+            z-index:20;
             margin-top:0;
         }
         .pot-tile div[data-testid="stButton"] > button {
-            min-height:1.95rem;
+            min-height:100%;
+            height:100%;
             width:100%;
-            border-radius:0 0 8px 8px;
-            border:2px solid rgba(255,245,220,.75);
-            border-top:0;
-            background:linear-gradient(180deg, #f15a38, #9c2118);
+            border-radius:8px;
+            border:0;
+            background:transparent;
             box-shadow:none;
-            font-size:.78rem;
-            line-height:1;
+            color:transparent;
+            font-size:0;
+            padding:0;
         }
         .pot-tile div[data-testid="stButton"] > button:hover {
             transform:none;
-            box-shadow:0 8px 18px rgba(213,70,49,.24);
+            box-shadow:inset 0 0 0 3px rgba(255,216,154,.75);
+            background:rgba(255,235,180,.08);
+        }
+        .pot-tile div[data-testid="stButton"] > button:active {
+            background:rgba(255,235,180,.16);
         }
         .pot-tile div[data-testid="stButton"] > button:focus,
         .pot-tile div[data-testid="stButton"] > button:focus-visible {
@@ -1132,7 +1140,7 @@ def render_pot_grid(selected_index: int | None = None) -> None:
                     st.markdown(opening_animation(theme["name"], theme), unsafe_allow_html=True)
                 else:
                     st.markdown(pot_card(theme), unsafe_allow_html=True)
-                    st.button("START", key=f"draw_pot_{index}", width="stretch", on_click=set_pending_draw, args=(index,))
+                    st.button(f"抽 {theme['name']}", key=f"draw_pot_{index}", width="stretch", on_click=set_pending_draw, args=(index,))
                 st.markdown("</div>", unsafe_allow_html=True)
 
 

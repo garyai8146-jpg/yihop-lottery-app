@@ -1164,11 +1164,6 @@ def render_pot_grid() -> int | None:
     if selected is None:
         return None
     if isinstance(selected, dict):
-        nonce = str(selected.get("nonce", ""))
-        if nonce and st.session_state.get("last_draw_nonce") == nonce:
-            return None
-        if nonce:
-            st.session_state.last_draw_nonce = nonce
         return int(selected.get("index", 0))
     return int(selected)
 

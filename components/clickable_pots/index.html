@@ -53,13 +53,6 @@
       pointer-events: none;
       animation: pulse .75s ease-in-out infinite alternate;
     }
-    .grid.busy .card {
-      cursor: wait;
-      filter: brightness(.55) saturate(.75);
-    }
-    .grid.busy .card.opening {
-      filter: brightness(1) saturate(1.08);
-    }
     .card.opening::after {
       content: "開鍋中...";
       position: absolute;
@@ -85,7 +78,6 @@
   <div id="root" class="grid"></div>
   <script>
     const root = document.getElementById("root");
-    let locked = false;
 
     function post(type, payload) {
       window.parent.postMessage({ isStreamlitMessage: true, type, ...payload }, "*");
@@ -102,8 +94,6 @@
     function render(args) {
       const images = args.images || [];
       const names = args.names || [];
-      locked = false;
-      root.classList.remove("busy");
       root.innerHTML = "";
       images.forEach((src, index) => {
         const button = document.createElement("button");
@@ -117,19 +107,8 @@
         button.appendChild(image);
 
         button.addEventListener("click", () => {
-          if (locked) return;
-          locked = true;
-          setComponentValue({ index, nonce: Date.now() });
-          root.classList.add("busy");
           button.classList.add("opening");
-          setTimeout(() => {
-            if (!locked) return;
-            locked = false;
-            root.classList.remove("busy");
-            root.querySelectorAll("button").forEach((item) => {
-              item.classList.remove("opening");
-            });
-          }, 4000);
+          setTimeout(() => setComponentValue(index), 650);
         });
         root.appendChild(button);
       });

@@ -499,7 +499,6 @@ def prize_summary() -> pd.DataFrame:
                 "總量": "不限量" if quantity == 0 else str(quantity),
                 "已抽出": str(issued),
                 "剩餘": str(remaining),
-                "需核銷": "是" if int(prize["is_win"]) == 1 else "否",
             }
         )
     return pd.DataFrame(rows)
@@ -513,6 +512,16 @@ def calculate_prize_quantity(total_quantity: int, probability: float, name: str)
     if total_quantity <= 0 or is_no_win_prize_name(name):
         return 0
     return max(0, int(round(total_quantity * probability / 100)))
+
+
+def format_draw_time(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    try:
+        return datetime.fromisoformat(text).strftime("%Y-%m-%d %H:%M")
+    except ValueError:
+        return text.replace("T", " ")[:16]
 
 
 def save_prizes(edited: pd.DataFrame) -> None:
@@ -1074,7 +1083,7 @@ def opening_animation(pot_name: str, theme: dict[str, str]) -> str:
 def render_result(result: dict[str, Any]) -> None:
     kicker = "恭喜中獎" if result["is_win"] else "謝謝參加"
     ticket_no = f"{int(result.get('customer_no', 0)):04d}-{int(result.get('draw_no', 0)):02d}-{int(result.get('id', 0)):06d}"
-    redeem_hint = "請將此畫面交給店員核銷" if result["is_win"] else "感謝參加，請交還平板"
+    redeem_hint = "請向店員兌換獎品" if result["is_win"] else "感謝參加，請交還平板"
     st.markdown(
         f"""
         <div class="result-card">
@@ -1361,40 +1370,17 @@ def render_admin_page() -> None:
     if records.empty:
         st.info("尚無抽獎紀錄。")
     else:
-        display_records = records.rename(
+        display_records = records.assign(
+            created_at=records["created_at"].map(format_draw_time)
+        )[["created_at", "pot_name", "prize_name", "is_win"]].rename(
             columns={
                 "created_at": "時間",
-                "customer_no": "客人編號",
-                "draw_no": "第幾抽",
                 "pot_name": "選擇的鍋",
-                "prize_emoji": "圖示",
                 "prize_name": "抽獎結果",
                 "is_win": "中獎",
-                "redeem_status": "核銷狀態",
-                "redeemed_at": "核銷時間",
             }
-        ).drop(columns=["id", "redeemed"])
+        )
         st.dataframe(display_records, hide_index=True, width="stretch")
-        st.markdown("#### 中獎核銷")
-        redeem_rows = records[(records["is_win"] == "是")].head(20)
-        if redeem_rows.empty:
-            st.info("目前沒有可核銷的中獎紀錄。")
-        else:
-            for _, row in redeem_rows.iterrows():
-                cols = st.columns([3, 2, 2, 2])
-                cols[0].markdown(
-                    f"第 {int(row['customer_no'])} 位 / {row['prize_emoji']} {row['prize_name']}"
-                )
-                cols[1].markdown(str(row["redeem_status"]))
-                if int(row["redeemed"]) == 1:
-                    if cols[2].button("撤銷核銷", key=f"unredeem_{int(row['id'])}"):
-                        set_draw_redeemed(int(row["id"]), False)
-                        st.rerun()
-                else:
-                    if cols[2].button("核銷", key=f"redeem_{int(row['id'])}", type="primary"):
-                        set_draw_redeemed(int(row["id"]), True)
-                        st.rerun()
-                cols[3].caption(str(row["created_at"]))
         csv_buffer = io.StringIO()
         display_records.to_csv(csv_buffer, index=False, quoting=csv.QUOTE_MINIMAL)
         st.download_button(

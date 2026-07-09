@@ -53,12 +53,11 @@
       pointer-events: none;
       animation: pulse .75s ease-in-out infinite alternate;
     }
-    .grid.locked .card {
+    .grid.busy .card {
       cursor: wait;
-      pointer-events: none;
       filter: brightness(.55) saturate(.75);
     }
-    .grid.locked .card.opening {
+    .grid.busy .card.opening {
       filter: brightness(1) saturate(1.08);
     }
     .card.opening::after {
@@ -97,14 +96,14 @@
     }
 
     function setComponentValue(value) {
-      post("streamlit:setComponentValue", { value });
+      post("streamlit:setComponentValue", { value, dataType: "json" });
     }
 
     function render(args) {
       const images = args.images || [];
       const names = args.names || [];
       locked = false;
-      root.classList.remove("locked");
+      root.classList.remove("busy");
       root.innerHTML = "";
       images.forEach((src, index) => {
         const button = document.createElement("button");
@@ -121,17 +120,13 @@
           if (locked) return;
           locked = true;
           setComponentValue({ index, nonce: Date.now() });
-          root.classList.add("locked");
-          root.querySelectorAll("button").forEach((item) => {
-            item.disabled = true;
-          });
+          root.classList.add("busy");
           button.classList.add("opening");
           setTimeout(() => {
             if (!locked) return;
             locked = false;
-            root.classList.remove("locked");
+            root.classList.remove("busy");
             root.querySelectorAll("button").forEach((item) => {
-              item.disabled = false;
               item.classList.remove("opening");
             });
           }, 4000);

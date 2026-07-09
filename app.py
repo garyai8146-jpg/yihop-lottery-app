@@ -69,6 +69,16 @@ def db_connection() -> Iterator[Any]:
         conn.close()
 
 
+def rows_to_dicts(cursor: Any) -> list[dict[str, Any]]:
+    rows = cursor.fetchall()
+    if not rows:
+        return []
+    if hasattr(rows[0], "keys"):
+        return [dict(row) for row in rows]
+    columns = [column[0] for column in cursor.description]
+    return [dict(zip(columns, row)) for row in rows]
+
+
 def get_config_value(*names: str) -> str:
     for name in names:
         value = os.getenv(name)
@@ -199,8 +209,8 @@ def load_prizes(include_disabled: bool = True) -> list[dict[str, Any]]:
         query += " WHERE enabled = 1"
     query += " ORDER BY id"
     with db_connection() as conn:
-        rows = conn.execute(query).fetchall()
-    return [dict(row) for row in rows]
+        cursor = conn.execute(query)
+        return rows_to_dicts(cursor)
 
 
 def current_status() -> dict[str, Any]:
@@ -418,16 +428,16 @@ def reset_activity() -> None:
 
 def customer_draws(customer_no: int) -> list[dict[str, Any]]:
     with db_connection() as conn:
-        rows = conn.execute(
+        cursor = conn.execute(
             "SELECT * FROM draws WHERE customer_no = ? ORDER BY draw_no",
             (customer_no,),
-        ).fetchall()
-    return [dict(row) for row in rows]
+        )
+        return rows_to_dicts(cursor)
 
 
 def all_draws(limit: int = 500) -> pd.DataFrame:
     with db_connection() as conn:
-        rows = conn.execute(
+        cursor = conn.execute(
             """
             SELECT id, created_at, customer_no, draw_no, pot_name, prize_emoji,
                    prize_name, CASE WHEN is_win = 1 THEN '是' ELSE '否' END AS is_win,
@@ -441,8 +451,8 @@ def all_draws(limit: int = 500) -> pd.DataFrame:
             FROM draws ORDER BY id DESC LIMIT ?
             """,
             (limit,),
-        ).fetchall()
-    return pd.DataFrame([dict(row) for row in rows])
+        )
+        return pd.DataFrame(rows_to_dicts(cursor))
 
 
 def set_draw_redeemed(draw_id: int, redeemed: bool) -> None:

@@ -698,8 +698,9 @@ def apply_global_styles() -> None:
             padding:0;
             margin:0;
             overflow:hidden;
-            border-radius:8px;
+            border-radius:8px 8px 0 0;
             border:3px solid rgba(255,248,223,.95);
+            border-bottom:0;
             background:#130d09;
             box-shadow:0 10px 24px rgba(0,0,0,.35);
             text-align:center;
@@ -725,18 +726,30 @@ def apply_global_styles() -> None:
             transform:scale(.97);
             filter:brightness(1.16) saturate(1.18);
         }
-        .pot-tile div[data-testid="stButton"] > button {
-            padding:0;
-            min-height:0;
-            width:100%;
-            border:0;
-            background:transparent;
-            box-shadow:none;
+        .pot-tile {
+            overflow:hidden;
             border-radius:8px;
+            margin-bottom:.85rem;
+            background:#130d09;
+            box-shadow:0 10px 24px rgba(0,0,0,.35);
+        }
+        .pot-tile div[data-testid="stButton"] {
+            margin-top:0;
+        }
+        .pot-tile div[data-testid="stButton"] > button {
+            min-height:1.95rem;
+            width:100%;
+            border-radius:0 0 8px 8px;
+            border:2px solid rgba(255,245,220,.75);
+            border-top:0;
+            background:linear-gradient(180deg, #f15a38, #9c2118);
+            box-shadow:none;
+            font-size:.78rem;
+            line-height:1;
         }
         .pot-tile div[data-testid="stButton"] > button:hover {
             transform:none;
-            box-shadow:none;
+            box-shadow:0 8px 18px rgba(213,70,49,.24);
         }
         .pot-tile div[data-testid="stButton"] > button:focus,
         .pot-tile div[data-testid="stButton"] > button:focus-visible {
@@ -1098,18 +1111,19 @@ def set_pending_draw(index: int) -> None:
 
 
 def render_pot_grid(selected_index: int | None = None) -> None:
-    st.markdown("<div class='pot-grid'>", unsafe_allow_html=True)
-    columns = st.columns(2, gap="small")
-    for index, theme in enumerate(POT_THEMES[:4]):
-        with columns[index % 2]:
-            st.markdown("<div class='pot-tile'>", unsafe_allow_html=True)
-            if selected_index == index:
-                st.markdown(opening_animation(theme["name"], theme), unsafe_allow_html=True)
-            else:
-                st.markdown(pot_card(theme), unsafe_allow_html=True)
-                st.button("START", key=f"draw_pot_{index}", width="stretch", on_click=set_pending_draw, args=(index,))
-            st.markdown("</div>", unsafe_allow_html=True)
-    st.markdown("</div>", unsafe_allow_html=True)
+    for row_start in range(0, 4, 2):
+        columns = st.columns(2, gap="small")
+        for offset, column in enumerate(columns):
+            index = row_start + offset
+            theme = POT_THEMES[index]
+            with column:
+                st.markdown("<div class='pot-tile'>", unsafe_allow_html=True)
+                if selected_index == index:
+                    st.markdown(opening_animation(theme["name"], theme), unsafe_allow_html=True)
+                else:
+                    st.markdown(pot_card(theme), unsafe_allow_html=True)
+                    st.button("START", key=f"draw_pot_{index}", width="stretch", on_click=set_pending_draw, args=(index,))
+                st.markdown("</div>", unsafe_allow_html=True)
 
 
 def render_lottery_page() -> None:

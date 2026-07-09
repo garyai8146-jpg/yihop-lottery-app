@@ -725,6 +725,24 @@ def apply_global_styles() -> None:
             transform:scale(.97);
             filter:brightness(1.16) saturate(1.18);
         }
+        .pot-tile div[data-testid="stButton"] > button {
+            padding:0;
+            min-height:0;
+            width:100%;
+            border:0;
+            background:transparent;
+            box-shadow:none;
+            border-radius:8px;
+        }
+        .pot-tile div[data-testid="stButton"] > button:hover {
+            transform:none;
+            box-shadow:none;
+        }
+        .pot-tile div[data-testid="stButton"] > button:focus,
+        .pot-tile div[data-testid="stButton"] > button:focus-visible {
+            outline:3px solid rgba(255,216,154,.85);
+            outline-offset:2px;
+        }
         .pot-card:before {
             content:"";
             position:absolute;
@@ -1017,21 +1035,13 @@ def image_data_uri(relative_path: str) -> str:
     return f"data:image/webp;base64,{encoded}"
 
 
-def pot_card(theme: dict[str, str], href: str | None = None) -> str:
+def pot_card(theme: dict[str, str]) -> str:
     image_src = image_data_uri(theme["image"])
-    card = f"""
+    return f"""
     <div class="pot-card" style="--accent:{theme['accent']};--glow:{theme['glow']};--poster-a:{theme['poster_a']};--poster-b:{theme['poster_b']};--poster-c:{theme['poster_c']}">
         <img src="{image_src}" alt="{escape_html(theme['name'])} 火鍋抽抽樂 START">
     </div>
     """
-    if href:
-        return (
-            f'<a class="pot-link" href="{escape_html(href)}" target="_self" '
-            "onclick=\"event.preventDefault();this.classList.add('is-opening');"
-            "setTimeout(()=>{window.location.href=this.href;},850);\">"
-            f"{card}</a>"
-        )
-    return card
 
 
 def opening_animation(pot_name: str, theme: dict[str, str]) -> str:
@@ -1083,14 +1093,23 @@ def render_customer_summary(customer_no: int) -> None:
     )
 
 
+def set_pending_draw(index: int) -> None:
+    st.session_state.pending_draw_index = index
+
+
 def render_pot_grid(selected_index: int | None = None) -> None:
-    cells = []
+    st.markdown("<div class='pot-grid'>", unsafe_allow_html=True)
+    columns = st.columns(2, gap="small")
     for index, theme in enumerate(POT_THEMES[:4]):
-        if selected_index == index:
-            cells.append(opening_animation(theme["name"], theme))
-        else:
-            cells.append(pot_card(theme, href=f"?draw={index}&t={time.time_ns()}"))
-    st.markdown(f"<div class='pot-grid'>{''.join(cells)}</div>", unsafe_allow_html=True)
+        with columns[index % 2]:
+            st.markdown("<div class='pot-tile'>", unsafe_allow_html=True)
+            if selected_index == index:
+                st.markdown(opening_animation(theme["name"], theme), unsafe_allow_html=True)
+            else:
+                st.markdown(pot_card(theme), unsafe_allow_html=True)
+                st.button("START", key=f"draw_pot_{index}", width="stretch", on_click=set_pending_draw, args=(index,))
+            st.markdown("</div>", unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
 
 
 def render_lottery_page() -> None:
@@ -1123,18 +1142,20 @@ def render_lottery_page() -> None:
         unsafe_allow_html=True,
     )
 
-    draw_index_raw = st.query_params.get("draw")
-    if draw_index_raw is not None:
+    pending_draw = st.session_state.get("pending_draw_index")
+    if pending_draw is not None:
         try:
-            draw_index = int(draw_index_raw)
+            draw_index = int(pending_draw)
             theme = POT_THEMES[draw_index]
+            render_pot_grid(selected_index=draw_index)
+            time.sleep(0.9)
             draw_result = perform_draw(theme["name"])
             st.session_state.last_result = draw_result
             st.session_state.balloons_shown = False
-            st.query_params.clear()
+            st.session_state.pop("pending_draw_index", None)
             st.rerun()
         except Exception as exc:
-            st.query_params.clear()
+            st.session_state.pop("pending_draw_index", None)
             st.error(str(exc))
             render_pot_grid()
     else:
@@ -1155,14 +1176,8 @@ def render_admin_page() -> None:
     with top_left:
         st.markdown("# 藝鍋物抽獎管理後台")
     with top_right:
-        if st.button("返回抽獎頁", width="stretch", type="primary"):
-            st.session_state.force_lottery_page = True
-            st.session_state.pop("last_result", None)
-            st.session_state.pop("balloons_shown", None)
-            st.query_params.clear()
-            st.rerun()
         st.markdown(
-            "<a class='admin-return-link' href='?page=lottery&admin=0' target='_self'>直接返回</a>",
+            "<a class='admin-return-link' href='?page=lottery&admin=0' target='_self'>返回抽獎頁面</a>",
             unsafe_allow_html=True,
         )
 

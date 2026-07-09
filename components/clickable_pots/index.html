@@ -125,7 +125,16 @@
             item.disabled = true;
           });
           button.classList.add("opening");
-          setTimeout(() => setComponentValue(index), 650);
+          setTimeout(() => setComponentValue({ index, nonce: Date.now() }), 650);
+          setTimeout(() => {
+            if (!locked) return;
+            locked = false;
+            root.classList.remove("locked");
+            root.querySelectorAll("button").forEach((item) => {
+              item.disabled = false;
+              item.classList.remove("opening");
+            });
+          }, 4000);
         });
         root.appendChild(button);
       });

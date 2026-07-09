@@ -1161,7 +1161,11 @@ def render_pot_grid() -> int | None:
     images = [image_data_uri(theme["image"]) for theme in POT_THEMES[:4]]
     names = [theme["name"] for theme in POT_THEMES[:4]]
     selected = clickable_pots(images=images, names=names, default=None, key="clickable_pots")
-    return None if selected is None else int(selected)
+    if selected is None:
+        return None
+    if isinstance(selected, dict):
+        return int(selected.get("index", 0))
+    return int(selected)
 
 
 def render_lottery_page() -> None:

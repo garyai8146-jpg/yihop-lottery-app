@@ -79,6 +79,16 @@ def rows_to_dicts(cursor: Any) -> list[dict[str, Any]]:
     return [dict(zip(columns, row)) for row in rows]
 
 
+def row_to_dict(cursor: Any) -> dict[str, Any] | None:
+    row = cursor.fetchone()
+    if row is None:
+        return None
+    if hasattr(row, "keys"):
+        return dict(row)
+    columns = [column[0] for column in cursor.description]
+    return dict(zip(columns, row))
+
+
 def get_config_value(*names: str) -> str:
     for name in names:
         value = os.getenv(name)
@@ -175,13 +185,13 @@ def ensure_column(conn: Any, table: str, column: str, definition: str) -> None:
 
 def get_setting(key: str, default: str = "") -> str:
     with db_connection() as conn:
-        row = conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+        row = row_to_dict(conn.execute("SELECT value FROM settings WHERE key = ?", (key,)))
     return str(row["value"]) if row else default
 
 
 def get_settings() -> dict[str, str]:
     with db_connection() as conn:
-        rows = conn.execute("SELECT key, value FROM settings").fetchall()
+        rows = rows_to_dicts(conn.execute("SELECT key, value FROM settings"))
     return {str(row["key"]): str(row["value"]) for row in rows}
 
 
@@ -248,10 +258,10 @@ def perform_draw(pot_name: str) -> dict[str, Any]:
     with db_connection() as conn:
         conn.execute("BEGIN IMMEDIATE")
         try:
-            settings_rows = conn.execute(
+            settings_rows = rows_to_dicts(conn.execute(
                 "SELECT key, value FROM settings WHERE key IN (?, ?, ?, ?)",
                 ("activity_enabled", "current_customer_no", "current_draws_used", "draws_per_customer"),
-            ).fetchall()
+            ))
             settings = {row["key"]: row["value"] for row in settings_rows}
 
             if settings.get("activity_enabled", "1") != "1":
@@ -263,13 +273,13 @@ def perform_draw(pot_name: str) -> dict[str, Any]:
             if used >= total:
                 raise ValueError("本位客人的抽獎次數已用完。")
 
-            candidates = conn.execute(
+            candidates = rows_to_dicts(conn.execute(
                 """
                 SELECT * FROM prizes
                 WHERE enabled = 1 AND probability > 0
                 ORDER BY id
                 """
-            ).fetchall()
+            ))
             if not candidates:
                 raise ValueError("目前沒有可抽取的獎品，請通知店員檢查後台。")
 
@@ -282,7 +292,7 @@ def perform_draw(pot_name: str) -> dict[str, Any]:
             # 限量獎品用完後，原本那段機率落到可用的「未中獎」項目，
             # 不重新分配給其他獎品，避免其他獎項的實際中獎率被提高。
             if selected_is_exhausted:
-                prize = conn.execute(
+                prize = row_to_dict(conn.execute(
                     """
                     SELECT * FROM prizes
                     WHERE enabled = 1
@@ -291,7 +301,7 @@ def perform_draw(pot_name: str) -> dict[str, Any]:
                     ORDER BY CASE WHEN quantity = 0 THEN 0 ELSE 1 END, id
                     LIMIT 1
                     """
-                ).fetchone()
+                ))
                 if prize is None:
                     raise ValueError(
                         "限量獎品已抽完，但後台沒有可用的『未中獎』項目承接機率。"
@@ -380,11 +390,11 @@ def undo_last_draw() -> str:
     with db_connection() as conn:
         conn.execute("BEGIN IMMEDIATE")
         try:
-            row = conn.execute("SELECT * FROM draws ORDER BY id DESC LIMIT 1").fetchone()
+            row = row_to_dict(conn.execute("SELECT * FROM draws ORDER BY id DESC LIMIT 1"))
             if row is None:
                 raise ValueError("目前沒有可撤銷的抽獎紀錄。")
 
-            prize = conn.execute("SELECT quantity, issued FROM prizes WHERE id = ?", (row["prize_id"],)).fetchone()
+            prize = row_to_dict(conn.execute("SELECT quantity, issued FROM prizes WHERE id = ?", (row["prize_id"],)))
             if prize and int(prize["quantity"]) > 0 and int(prize["issued"]) > 0:
                 conn.execute("UPDATE prizes SET issued = issued - 1 WHERE id = ?", (row["prize_id"],))
 
@@ -459,7 +469,7 @@ def set_draw_redeemed(draw_id: int, redeemed: bool) -> None:
     with db_connection() as conn:
         conn.execute("BEGIN IMMEDIATE")
         try:
-            row = conn.execute("SELECT is_win FROM draws WHERE id = ?", (draw_id,)).fetchone()
+            row = row_to_dict(conn.execute("SELECT is_win FROM draws WHERE id = ?", (draw_id,)))
             if row is None:
                 raise ValueError("找不到這筆抽獎紀錄。")
             if int(row["is_win"]) != 1:

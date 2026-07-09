@@ -939,10 +939,11 @@ def apply_global_styles() -> None:
         .tiny-admin { text-align:center; margin-top:1.5rem; opacity:.58; }
         .tiny-admin a { color:#cdbb9d; text-decoration:none; font-size:.9rem; }
         .admin-return-link {
-            display:block;
+            display:flex;
+            align-items:center;
+            justify-content:center;
             width:100%;
             min-height:2.5rem;
-            line-height:2.5rem;
             text-align:center;
             border-radius:8px;
             border:2px solid rgba(255,245,220,.65);
@@ -951,6 +952,8 @@ def apply_global_styles() -> None:
             font-weight:850;
             text-decoration:none !important;
             box-shadow:0 6px 14px rgba(0,0,0,.25), inset 0 1px 0 rgba(255,255,255,.22);
+            cursor:pointer;
+            user-select:none;
         }
         @media(max-width:700px){
             .block-container{padding-left:.25rem;padding-right:.25rem}.event-title{font-size:1rem}.event-subtitle{display:none}.status-pill{font-size:.72rem}.pot-grid{width:min(98vw,610px);gap:4px}.poster-title{font-size:1.75rem;-webkit-text-stroke:1.2px #2b120d}.poster-start{font-size:1.55rem}.poster-food{width:82%;bottom:-20px}.poster-side{width:62px;height:105px}.poster-herb{width:72px;height:92px}
@@ -1093,7 +1096,17 @@ def render_admin_page() -> None:
         st.markdown("# 藝鍋物抽獎管理後台")
     with top_right:
         st.markdown(
-            "<a class='admin-return-link' href='?page=lottery&admin=0' target='_self'>返回抽獎頁面</a>",
+            """
+            <div
+                class="admin-return-link"
+                role="button"
+                tabindex="0"
+                onclick="window.location.href='?page=lottery&admin=0'"
+                onkeydown="if(event.key==='Enter'||event.key===' '){window.location.href='?page=lottery&admin=0'}"
+            >
+                返回抽獎頁面
+            </div>
+            """,
             unsafe_allow_html=True,
         )
 

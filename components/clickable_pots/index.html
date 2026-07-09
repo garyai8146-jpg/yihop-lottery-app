@@ -53,6 +53,14 @@
       pointer-events: none;
       animation: pulse .75s ease-in-out infinite alternate;
     }
+    .grid.locked .card {
+      cursor: wait;
+      pointer-events: none;
+      filter: brightness(.55) saturate(.75);
+    }
+    .grid.locked .card.opening {
+      filter: brightness(1) saturate(1.08);
+    }
     .card.opening::after {
       content: "開鍋中...";
       position: absolute;
@@ -78,6 +86,7 @@
   <div id="root" class="grid"></div>
   <script>
     const root = document.getElementById("root");
+    let locked = false;
 
     function post(type, payload) {
       window.parent.postMessage({ isStreamlitMessage: true, type, ...payload }, "*");
@@ -94,6 +103,8 @@
     function render(args) {
       const images = args.images || [];
       const names = args.names || [];
+      locked = false;
+      root.classList.remove("locked");
       root.innerHTML = "";
       images.forEach((src, index) => {
         const button = document.createElement("button");
@@ -107,6 +118,12 @@
         button.appendChild(image);
 
         button.addEventListener("click", () => {
+          if (locked) return;
+          locked = true;
+          root.classList.add("locked");
+          root.querySelectorAll("button").forEach((item) => {
+            item.disabled = true;
+          });
           button.classList.add("opening");
           setTimeout(() => setComponentValue(index), 650);
         });

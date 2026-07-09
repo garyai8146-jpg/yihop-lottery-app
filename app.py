@@ -1232,67 +1232,117 @@ def render_pot_grid() -> int | None:
 
 
 # YIHOP_LIVE_RESULT_RERUN_FIX_V2
+# YIHOP_LIVE_INLINE_RESULT_V3
 def render_lottery_page() -> None:
-    status = current_status()
-    render_header(status)
+    screen = st.empty()
+    selected_draw: int | None = None
 
-    if not status["enabled"]:
-        st.warning("活動目前暫停，請將平板交還櫃檯。")
-        render_admin_link()
-        return
-
-    pending_error = st.session_state.pop("draw_error", None)
-    if pending_error:
-        st.error(str(pending_error))
-
-    result = st.session_state.get("last_result")
-    if not result and int(status["used"]) > 0:
-        result = latest_customer_result(int(status["customer_no"]), int(status["remaining"]))
-        if result:
-            st.session_state.last_result = result
-            st.session_state.balloons_shown = False
-
-    if result and int(result.get("customer_no", -1)) == status["customer_no"]:
+    def render_result_screen(result: dict[str, Any]) -> None:
         render_result(result)
         done_label = "完成，下一位客人" if int(result.get("remaining", 0)) <= 0 else "完成，繼續抽"
-        if st.button(done_label, width="stretch", type="primary"):
+        draw_identity = int(result.get("id", 0))
+        if st.button(
+            done_label,
+            width="stretch",
+            type="primary",
+            key=f"finish_draw_{draw_identity}",
+        ):
             st.session_state.pop("last_result", None)
             st.session_state.pop("balloons_shown", None)
-            st.session_state.draw_widget_version = int(st.session_state.get("draw_widget_version", 0)) + 1
+            st.session_state.pop("draw_error", None)
+            st.session_state.draw_widget_version = (
+                int(st.session_state.get("draw_widget_version", 0)) + 1
+            )
             if int(result.get("remaining", 0)) <= 0:
                 next_customer()
             st.rerun()
+
+    status = current_status()
+
+    with screen.container():
+        render_header(status)
+
+        if not status["enabled"]:
+            st.warning("活動目前暫停，請將平板交還櫃檯。")
+            render_admin_link()
+            return
+
+        pending_error = st.session_state.pop("draw_error", None)
+        if pending_error:
+            st.error(str(pending_error))
+
+        result = st.session_state.get("last_result")
+        if result and int(result.get("customer_no", -1)) != int(status["customer_no"]):
+            st.session_state.pop("last_result", None)
+            st.session_state.pop("balloons_shown", None)
+            result = None
+
+        if not result and int(status["used"]) > 0:
+            result = latest_customer_result(
+                int(status["customer_no"]),
+                int(status["remaining"]),
+            )
+            if result:
+                st.session_state.last_result = result
+                st.session_state.balloons_shown = False
+
+        if result:
+            render_result_screen(result)
+            return
+
+        if int(status["remaining"]) <= 0:
+            st.error("抽獎紀錄已產生，但結果讀取失敗。請由店員進入後台確認紀錄。")
+            render_admin_link()
+            return
+
+        st.markdown(
+            "<h3 class='lottery-prompt'>請憑直覺選一鍋</h3>",
+            unsafe_allow_html=True,
+        )
+        selected_draw = render_pot_grid()
+        render_admin_link()
+
+    if selected_draw is None:
         return
 
-    if status["remaining"] <= 0:
-        next_customer()
-        st.rerun()
+    try:
+        draw_index = int(selected_draw)
+        if draw_index < 0 or draw_index >= len(POT_THEMES):
+            raise ValueError("無效的火鍋選項，請重新選擇。")
+        theme = POT_THEMES[draw_index]
+        draw_result = perform_draw(theme["name"])
+    except Exception as exc:
+        st.session_state.draw_error = str(exc)
+        st.session_state.draw_widget_version = (
+            int(st.session_state.get("draw_widget_version", 0)) + 1
+        )
+        screen.empty()
+        with screen.container():
+            render_header(current_status())
+            st.error(str(exc))
+            if st.button(
+                "重新選擇",
+                width="stretch",
+                type="primary",
+                key="retry_draw_after_error",
+            ):
+                st.rerun()
+            render_admin_link()
+        st.stop()
 
-    st.markdown(
-        "<h3 class='lottery-prompt'>請憑直覺選一鍋</h3>",
-        unsafe_allow_html=True,
+    st.session_state.draw_widget_version = (
+        int(st.session_state.get("draw_widget_version", 0)) + 1
     )
+    st.session_state.last_result = draw_result
+    st.session_state.balloons_shown = False
 
-    selected_draw = render_pot_grid()
-    if selected_draw is not None:
-        try:
-            draw_index = int(selected_draw)
-            if draw_index < 0 or draw_index >= len(POT_THEMES):
-                raise ValueError("無效的火鍋選項，請重新選擇。")
-            theme = POT_THEMES[draw_index]
-            draw_result = perform_draw(theme["name"])
-        except Exception as exc:
-            st.session_state.draw_error = str(exc)
-            st.session_state.draw_widget_version = int(st.session_state.get("draw_widget_version", 0)) + 1
-        else:
-            st.session_state.draw_widget_version = int(st.session_state.get("draw_widget_version", 0)) + 1
-            st.session_state.last_result = draw_result
-            st.session_state.balloons_shown = False
+    # Replace the component immediately in this same run.
+    screen.empty()
+    with screen.container():
+        render_header(current_status())
+        render_result_screen(draw_result)
 
-        # Keep Streamlit rerun outside the broad exception handler.
-        st.rerun()
-
-    render_admin_link()
+    st.stop()
 
 
 def render_admin_link() -> None:

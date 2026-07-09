@@ -108,7 +108,12 @@
 
         button.addEventListener("click", () => {
           button.classList.add("opening");
-          setTimeout(() => setComponentValue(index), 650);
+          // YIHOP_COMPONENT_EVENT_V3
+          const eventId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+          root.querySelectorAll(".card").forEach((card) => {
+            card.disabled = true;
+          });
+          setTimeout(() => setComponentValue({ index, eventId }), 450);
         });
         root.appendChild(button);
       });

@@ -232,18 +232,16 @@ def load_prizes(include_disabled: bool = True) -> list[dict[str, Any]]:
         return rows_to_dicts(cursor)
 
 
+# YIHOP_SINGLE_DRAW_FLOW_V4
 def current_status() -> dict[str, Any]:
     settings = get_settings()
-    total = max(1, int(settings.get("draws_per_customer", "1")))
-    used = max(0, int(settings.get("current_draws_used", "0")))
-    customer_no = max(1, int(settings.get("current_customer_no", "1")))
     return {
-        "customer_no": customer_no,
-        "used": used,
-        "total": total,
-        "remaining": max(0, total - used),
-        "enabled": settings.get("activity_enabled", "1") == "1",
-        "pot_count": 2 if settings.get("pot_count", "4") == "2" else 4,
+        "customer_no": 0,
+        "used": 0,
+        "total": 1,
+        "remaining": 1,
+        "enabled": True,
+        "pot_count": 4,
         "activity_name": settings.get("activity_name", "藝起開鍋抽好禮"),
         "activity_subtitle": settings.get("activity_subtitle", "選一鍋，讓今天的好運滾起來"),
     }
@@ -262,33 +260,40 @@ def weighted_pick(rows: list[sqlite3.Row]) -> sqlite3.Row:
     return rows[-1]
 
 
+# YIHOP_SINGLE_DRAW_TRANSACTION_V4
 def perform_draw(pot_name: str) -> dict[str, Any]:
-    """Atomically validate draw count, pick a prize, deduct inventory, and log the draw."""
+    """Create exactly one draw for the next participant and keep its result pending."""
     with db_connection() as conn:
         conn.execute("BEGIN IMMEDIATE")
         try:
-            settings_rows = rows_to_dicts(conn.execute(
-                "SELECT key, value FROM settings WHERE key IN (?, ?, ?, ?)",
-                ("activity_enabled", "current_customer_no", "current_draws_used", "draws_per_customer"),
-            ))
-            settings = {row["key"]: row["value"] for row in settings_rows}
+            pending_row = row_to_dict(
+                conn.execute(
+                    "SELECT value FROM settings WHERE key = 'active_result_id'"
+                )
+            )
+            pending_value = str(pending_row["value"]).strip() if pending_row else ""
+            if pending_value:
+                pending_draw = row_to_dict(
+                    conn.execute(
+                        "SELECT id FROM draws WHERE id = ?",
+                        (int(pending_value),),
+                    )
+                )
+                if pending_draw is not None:
+                    raise ValueError("上一位客人的抽獎結果尚未完成，請先按下完成。")
+                conn.execute(
+                    "UPDATE settings SET value = '' WHERE key = 'active_result_id'"
+                )
 
-            if settings.get("activity_enabled", "1") != "1":
-                raise ValueError("活動目前未開放。")
-
-            total = max(1, int(settings.get("draws_per_customer", "1")))
-            used = max(0, int(settings.get("current_draws_used", "0")))
-            customer_no = max(1, int(settings.get("current_customer_no", "1")))
-            if used >= total:
-                raise ValueError("本位客人的抽獎次數已用完。")
-
-            candidates = rows_to_dicts(conn.execute(
-                """
-                SELECT * FROM prizes
-                WHERE enabled = 1 AND probability > 0
-                ORDER BY id
-                """
-            ))
+            candidates = rows_to_dicts(
+                conn.execute(
+                    """
+                    SELECT * FROM prizes
+                    WHERE enabled = 1 AND probability > 0
+                    ORDER BY id
+                    """
+                )
+            )
             if not candidates:
                 raise ValueError("目前沒有可抽取的獎品，請通知店員檢查後台。")
 
@@ -298,19 +303,19 @@ def perform_draw(pot_name: str) -> dict[str, Any]:
                 and int(selected["issued"]) >= int(selected["quantity"])
             )
 
-            # 限量獎品用完後，原本那段機率落到可用的「未中獎」項目，
-            # 不重新分配給其他獎品，避免其他獎項的實際中獎率被提高。
             if selected_is_exhausted:
-                prize = row_to_dict(conn.execute(
-                    """
-                    SELECT * FROM prizes
-                    WHERE enabled = 1
-                      AND is_win = 0
-                      AND (quantity = 0 OR issued < quantity)
-                    ORDER BY CASE WHEN quantity = 0 THEN 0 ELSE 1 END, id
-                    LIMIT 1
-                    """
-                ))
+                prize = row_to_dict(
+                    conn.execute(
+                        """
+                        SELECT * FROM prizes
+                        WHERE enabled = 1
+                          AND is_win = 0
+                          AND (quantity = 0 OR issued < quantity)
+                        ORDER BY CASE WHEN quantity = 0 THEN 0 ELSE 1 END, id
+                        LIMIT 1
+                        """
+                    )
+                )
                 if prize is None:
                     raise ValueError(
                         "限量獎品已抽完，但後台沒有可用的『未中獎』項目承接機率。"
@@ -328,23 +333,22 @@ def perform_draw(pot_name: str) -> dict[str, Any]:
                     (int(prize["id"]),),
                 ).rowcount
                 if updated != 1:
-                    raise RuntimeError("獎品庫存剛好用完，請再抽一次。")
+                    raise RuntimeError("獎品庫存剛好用完，請重新選擇。")
 
-            new_used = used + 1
-            conn.execute(
-                "UPDATE settings SET value = ? WHERE key = 'current_draws_used'",
-                (str(new_used),),
+            count_row = row_to_dict(
+                conn.execute("SELECT COUNT(*) AS total FROM draws")
             )
+            participant_no = int(count_row["total"]) + 1 if count_row else 1
             created_at = datetime.now(TAIPEI_TZ).isoformat(timespec="seconds")
+
             conn.execute(
                 """
                 INSERT INTO draws
                     (customer_no, draw_no, pot_name, prize_id, prize_name, prize_emoji, is_win, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, 1, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    customer_no,
-                    new_used,
+                    participant_no,
                     pot_name,
                     int(prize["id"]),
                     str(prize["name"]),
@@ -354,19 +358,46 @@ def perform_draw(pot_name: str) -> dict[str, Any]:
                 ),
             )
             draw_id = int(conn.execute("SELECT last_insert_rowid()").fetchone()[0])
+
+            conn.execute(
+                """
+                INSERT INTO settings(key, value) VALUES ('active_result_id', ?)
+                ON CONFLICT(key) DO UPDATE SET value = excluded.value
+                """,
+                (str(draw_id),),
+            )
+            conn.execute(
+                """
+                INSERT INTO settings(key, value) VALUES ('draws_per_customer', '1')
+                ON CONFLICT(key) DO UPDATE SET value = '1'
+                """
+            )
+            conn.execute(
+                """
+                INSERT INTO settings(key, value) VALUES ('current_draws_used', '0')
+                ON CONFLICT(key) DO UPDATE SET value = '0'
+                """
+            )
+            conn.execute(
+                """
+                INSERT INTO settings(key, value) VALUES ('current_customer_no', ?)
+                ON CONFLICT(key) DO UPDATE SET value = excluded.value
+                """,
+                (str(participant_no + 1),),
+            )
             conn.execute("COMMIT")
 
             return {
                 "id": draw_id,
-                "customer_no": customer_no,
-                "draw_no": new_used,
+                "customer_no": participant_no,
+                "draw_no": 1,
                 "pot_name": pot_name,
                 "prize_id": int(prize["id"]),
                 "name": str(prize["name"]),
                 "emoji": str(prize["emoji"]),
                 "is_win": bool(prize["is_win"]),
                 "result_text": str(prize["result_text"] or prize["name"]),
-                "remaining": max(0, total - new_used),
+                "remaining": 0,
             }
         except Exception:
             conn.execute("ROLLBACK")
@@ -425,8 +456,20 @@ def reset_activity() -> None:
         try:
             conn.execute("DELETE FROM draws")
             conn.execute("UPDATE prizes SET issued = 0")
-            conn.execute("UPDATE settings SET value = '1' WHERE key = 'current_customer_no'")
-            conn.execute("UPDATE settings SET value = '0' WHERE key = 'current_draws_used'")
+            reset_values = {
+                "current_customer_no": "1",
+                "current_draws_used": "0",
+                "draws_per_customer": "1",
+                "active_result_id": "",
+            }
+            for key, value in reset_values.items():
+                conn.execute(
+                    """
+                    INSERT INTO settings(key, value) VALUES (?, ?)
+                    ON CONFLICT(key) DO UPDATE SET value = excluded.value
+                    """,
+                    (key, value),
+                )
             conn.execute("COMMIT")
         except Exception:
             conn.execute("ROLLBACK")
@@ -442,7 +485,8 @@ def customer_draws(customer_no: int) -> list[dict[str, Any]]:
         return rows_to_dicts(cursor)
 
 
-def latest_customer_result(customer_no: int, remaining: int) -> dict[str, Any] | None:
+# YIHOP_DRAW_RESULT_LOOKUP_V4
+def draw_result_by_id(draw_id: int) -> dict[str, Any] | None:
     with db_connection() as conn:
         row = row_to_dict(
             conn.execute(
@@ -452,11 +496,10 @@ def latest_customer_result(customer_no: int, remaining: int) -> dict[str, Any] |
                        COALESCE(NULLIF(p.result_text, ''), d.prize_name) AS result_text
                 FROM draws d
                 LEFT JOIN prizes p ON p.id = d.prize_id
-                WHERE d.customer_no = ?
-                ORDER BY d.id DESC
+                WHERE d.id = ?
                 LIMIT 1
                 """,
-                (customer_no,),
+                (draw_id,),
             )
         )
     if row is None:
@@ -464,15 +507,21 @@ def latest_customer_result(customer_no: int, remaining: int) -> dict[str, Any] |
     return {
         "id": int(row["id"]),
         "customer_no": int(row["customer_no"]),
-        "draw_no": int(row["draw_no"]),
+        "draw_no": 1,
         "pot_name": str(row["pot_name"]),
         "prize_id": int(row["prize_id"]) if row["prize_id"] is not None else 0,
         "name": str(row["prize_name"]),
         "emoji": str(row["prize_emoji"]),
         "is_win": bool(row["is_win"]),
         "result_text": str(row["result_text"] or row["prize_name"]),
-        "remaining": max(0, int(remaining)),
+        "remaining": 0,
     }
+
+
+def total_draw_count() -> int:
+    with db_connection() as conn:
+        row = row_to_dict(conn.execute("SELECT COUNT(*) AS total FROM draws"))
+    return int(row["total"]) if row else 0
 
 
 def all_draws(limit: int = 500) -> pd.DataFrame:
@@ -1159,7 +1208,6 @@ def render_header(status: dict[str, Any]) -> None:
         <div class="brand-mark"><div class="brand-seal">藝</div></div>
         <div class="event-title">{escape_html(status['activity_name'])}</div>
         <div class="event-subtitle">{escape_html(status['activity_subtitle'])}</div>
-        <div class="status-pill">第 {status['customer_no']} 位客人・還可以抽 {status['remaining']} 次</div>
         """,
         unsafe_allow_html=True,
     )
@@ -1185,7 +1233,11 @@ def image_data_uri(relative_path: str) -> str:
 
 def render_result(result: dict[str, Any]) -> None:
     kicker = "恭喜中獎" if result["is_win"] else "謝謝參加"
-    ticket_no = f"{int(result.get('customer_no', 0)):04d}-{int(result.get('draw_no', 0)):02d}-{int(result.get('id', 0)):06d}"
+    ticket_no = (
+        f"{int(result.get('customer_no', 0)):04d}-"
+        f"{int(result.get('draw_no', 1)):02d}-"
+        f"{int(result.get('id', 0)):06d}"
+    )
     redeem_hint = "請向店員兌換獎品" if result["is_win"] else "感謝參加，請交還平板"
     st.markdown(
         f"""
@@ -1194,7 +1246,7 @@ def render_result(result: dict[str, Any]) -> None:
             <div class="result-kicker">{kicker}・{escape_html(result['pot_name'])}</div>
             <div class="result-name">{escape_html(result['name'])}</div>
             <div class="result-copy">{escape_html(result['result_text'])}</div>
-            <div class="ticket-meta">券號 {escape_html(ticket_no)}・第 {escape_html(result['customer_no'])} 位客人</div>
+            <div class="ticket-meta">券號 {escape_html(ticket_no)}・參加序號 {escape_html(result['customer_no'])}</div>
             <div class="redeem-hint">{escape_html(redeem_hint)}</div>
         </div>
         """,
@@ -1233,28 +1285,33 @@ def render_pot_grid() -> int | None:
 
 # YIHOP_LIVE_RESULT_RERUN_FIX_V2
 # YIHOP_LIVE_INLINE_RESULT_V3
+# YIHOP_SINGLE_DRAW_UI_V4
 def render_lottery_page() -> None:
     screen = st.empty()
     selected_draw: int | None = None
 
-    def render_result_screen(result: dict[str, Any]) -> None:
+    def finish_result(result: dict[str, Any]) -> None:
         render_result(result)
-        done_label = "完成，下一位客人" if int(result.get("remaining", 0)) <= 0 else "完成，繼續抽"
         draw_identity = int(result.get("id", 0))
         if st.button(
-            done_label,
+            "完成",
             width="stretch",
             type="primary",
             key=f"finish_draw_{draw_identity}",
         ):
+            set_settings(
+                {
+                    "active_result_id": "",
+                    "draws_per_customer": "1",
+                    "current_draws_used": "0",
+                }
+            )
             st.session_state.pop("last_result", None)
             st.session_state.pop("balloons_shown", None)
             st.session_state.pop("draw_error", None)
             st.session_state.draw_widget_version = (
                 int(st.session_state.get("draw_widget_version", 0)) + 1
             )
-            if int(result.get("remaining", 0)) <= 0:
-                next_customer()
             st.rerun()
 
     status = current_status()
@@ -1262,37 +1319,23 @@ def render_lottery_page() -> None:
     with screen.container():
         render_header(status)
 
-        if not status["enabled"]:
-            st.warning("活動目前暫停，請將平板交還櫃檯。")
-            render_admin_link()
-            return
-
         pending_error = st.session_state.pop("draw_error", None)
         if pending_error:
             st.error(str(pending_error))
 
         result = st.session_state.get("last_result")
-        if result and int(result.get("customer_no", -1)) != int(status["customer_no"]):
-            st.session_state.pop("last_result", None)
-            st.session_state.pop("balloons_shown", None)
-            result = None
+        pending_id_text = get_setting("active_result_id", "").strip()
 
-        if not result and int(status["used"]) > 0:
-            result = latest_customer_result(
-                int(status["customer_no"]),
-                int(status["remaining"]),
-            )
-            if result:
+        if result is None and pending_id_text.isdigit():
+            result = draw_result_by_id(int(pending_id_text))
+            if result is None:
+                set_settings({"active_result_id": ""})
+            else:
                 st.session_state.last_result = result
                 st.session_state.balloons_shown = False
 
-        if result:
-            render_result_screen(result)
-            return
-
-        if int(status["remaining"]) <= 0:
-            st.error("抽獎紀錄已產生，但結果讀取失敗。請由店員進入後台確認紀錄。")
-            render_admin_link()
+        if result is not None:
+            finish_result(result)
             return
 
         st.markdown(
@@ -1336,11 +1379,10 @@ def render_lottery_page() -> None:
     st.session_state.last_result = draw_result
     st.session_state.balloons_shown = False
 
-    # Replace the component immediately in this same run.
     screen.empty()
     with screen.container():
         render_header(current_status())
-        render_result_screen(draw_result)
+        finish_result(draw_result)
 
     st.stop()
 
@@ -1355,59 +1397,31 @@ def render_admin_link() -> None:
 def render_admin_page() -> None:
     st.markdown("# 藝鍋物抽獎管理後台")
 
-    status = current_status()
-    metric_cols = st.columns(4)
-    metric_cols[0].metric("目前客人", f"第 {status['customer_no']} 位")
-    metric_cols[1].metric("本位已抽", f"{status['used']} / {status['total']}")
-    metric_cols[2].metric("剩餘次數", status["remaining"])
-    total_draws = len(all_draws(limit=100000))
-    metric_cols[3].metric("累積抽獎", total_draws)
+    total_draws = total_draw_count()
+    st.metric("累積抽獎／參加人數", total_draws)
+    st.caption("每位客人固定抽一次；累積抽獎次數即為活動參加人數。")
 
-    st.markdown("### 櫃檯操作")
-    action_cols = st.columns(4)
-    with action_cols[0]:
-        if st.button("返回抽獎頁面", width="stretch", type="primary"):
-            st.session_state.force_lottery_page = True
-            st.session_state.pop("last_result", None)
-            st.session_state.pop("balloons_shown", None)
-            st.query_params["page"] = "lottery"
-            st.query_params["admin"] = "0"
-            st.rerun()
-    with action_cols[1]:
-        if st.button("✅ 下一位客人", width="stretch", type="primary"):
-            next_customer()
-            st.session_state.pop("last_result", None)
-            st.session_state.pop("balloons_shown", None)
-            st.success("已切換到下一位客人。")
-            st.rerun()
-    with action_cols[2]:
-        if st.button("↩ 撤銷最後一抽", width="stretch"):
-            try:
-                prize_name = undo_last_draw()
-                st.session_state.pop("last_result", None)
-                st.success(f"已撤銷：{prize_name}")
-                st.rerun()
-            except Exception as exc:
-                st.error(str(exc))
-    with action_cols[3]:
-        enabled = status["enabled"]
-        label = "⏸ 暫停活動" if enabled else "▶ 開放活動"
-        if st.button(label, width="stretch"):
-            set_settings({"activity_enabled": "0" if enabled else "1"})
-            st.rerun()
+    if st.button("返回抽獎頁面", width="stretch", type="primary"):
+        st.session_state.force_lottery_page = True
+        st.session_state.pop("last_result", None)
+        st.session_state.pop("balloons_shown", None)
+        st.session_state.pop("draw_error", None)
+        st.query_params["page"] = "lottery"
+        st.query_params["admin"] = "0"
+        st.rerun()
 
     st.divider()
     settings = get_settings()
     st.markdown("### 活動設定")
+    st.caption("每位客人固定抽一次，不需要另外切換下一位客人。")
     with st.form("activity_settings"):
-        activity_name = st.text_input("活動名稱", value=settings.get("activity_name", "藝起開鍋抽好禮"))
-        activity_subtitle = st.text_input("副標題", value=settings.get("activity_subtitle", "選一鍋，讓今天的好運滾起來"))
-        draws_per_customer = st.number_input(
-            "每位客人可抽次數",
-            min_value=1,
-            max_value=20,
-            value=max(1, int(settings.get("draws_per_customer", "1"))),
-            step=1,
+        activity_name = st.text_input(
+            "活動名稱",
+            value=settings.get("activity_name", "藝起開鍋抽好禮"),
+        )
+        activity_subtitle = st.text_input(
+            "副標題",
+            value=settings.get("activity_subtitle", "選一鍋，讓今天的好運滾起來"),
         )
         save_activity = st.form_submit_button("儲存活動設定", width="stretch")
     if save_activity:
@@ -1416,7 +1430,9 @@ def render_admin_page() -> None:
                 "activity_name": activity_name.strip() or "藝起開鍋抽好禮",
                 "activity_subtitle": activity_subtitle.strip() or "選一鍋，讓今天的好運滾起來",
                 "pot_count": 4,
-                "draws_per_customer": int(draws_per_customer),
+                "draws_per_customer": 1,
+                "current_draws_used": 0,
+                "activity_enabled": 1,
             }
         )
         st.success("活動設定已儲存。")
@@ -1550,7 +1566,7 @@ def render_admin_page() -> None:
         st.download_button(
             "下載 CSV",
             data="\ufeff" + csv_buffer.getvalue(),
-            file_name=f"yihop_lottery_{datetime.now():%Y%m%d_%H%M%S}.csv",
+            file_name=f"yihop_lottery_{datetime.now(TAIPEI_TZ):%Y%m%d_%H%M%S}.csv",
             mime="text/csv",
             width="stretch",
         )

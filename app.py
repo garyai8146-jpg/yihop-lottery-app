@@ -1160,7 +1160,8 @@ def render_customer_summary(customer_no: int) -> None:
 def render_pot_grid() -> int | None:
     images = [image_data_uri(theme["image"]) for theme in POT_THEMES[:4]]
     names = [theme["name"] for theme in POT_THEMES[:4]]
-    selected = clickable_pots(images=images, names=names, default=None, key="clickable_pots")
+    widget_version = int(st.session_state.get("draw_widget_version", 0))
+    selected = clickable_pots(images=images, names=names, default=None, key=f"clickable_pots_{widget_version}")
     if selected is None:
         return None
     if isinstance(selected, dict):
@@ -1184,6 +1185,7 @@ def render_lottery_page() -> None:
         if st.button(done_label, width="stretch", type="primary"):
             st.session_state.pop("last_result", None)
             st.session_state.pop("balloons_shown", None)
+            st.session_state.draw_widget_version = int(st.session_state.get("draw_widget_version", 0)) + 1
             if int(result.get("remaining", 0)) <= 0:
                 next_customer()
             st.rerun()
@@ -1204,6 +1206,7 @@ def render_lottery_page() -> None:
             draw_index = int(selected_draw)
             theme = POT_THEMES[draw_index]
             draw_result = perform_draw(theme["name"])
+            st.session_state.draw_widget_version = int(st.session_state.get("draw_widget_version", 0)) + 1
             st.session_state.last_result = draw_result
             st.session_state.balloons_shown = False
             st.rerun()

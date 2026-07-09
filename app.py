@@ -854,6 +854,30 @@ def apply_global_styles() -> None:
         .pot-body:before { left:-35px; } .pot-body:after { right:-35px; }
         .pot-icon { position:absolute; z-index:4; top:130px; left:50%; transform:translateX(-50%); color:#ffe9bd; font-size:2rem; font-weight:900; font-family:"DFKai-SB","KaiTi",serif; text-shadow:0 0 18px var(--accent); }
         .pot-name { position:absolute; left:0; right:0; bottom:10px; z-index:4; color:#f9dfb4; font-weight:850; font-size:1.15rem; letter-spacing:.1em; }
+        .pot-link.is-opening {
+            pointer-events:none;
+        }
+        .pot-link.is-opening .pot-card {
+            animation:draw-card-pulse .75s ease-in-out infinite alternate;
+            filter:brightness(1.12) saturate(1.18);
+        }
+        .pot-link.is-opening .pot-card:after {
+            content:"開鍋中...";
+            position:absolute;
+            inset:0;
+            z-index:9;
+            display:flex;
+            align-items:center;
+            justify-content:center;
+            color:#fff7d8;
+            font-size:1.6rem;
+            font-weight:950;
+            letter-spacing:.12em;
+            text-shadow:0 3px 8px rgba(0,0,0,.5);
+            background:rgba(116,24,18,.32);
+            backdrop-filter:blur(1px);
+        }
+        @keyframes draw-card-pulse { to { transform:scale(.97); box-shadow:0 0 38px rgba(255,205,105,.55); } }
         div[data-testid="stButton"] > button {
             min-height:2.5rem;
             border-radius:8px;
@@ -1001,7 +1025,12 @@ def pot_card(theme: dict[str, str], href: str | None = None) -> str:
     </div>
     """
     if href:
-        return f'<a class="pot-link" href="{escape_html(href)}" target="_self">{card}</a>'
+        return (
+            f'<a class="pot-link" href="{escape_html(href)}" target="_self" '
+            "onclick=\"event.preventDefault();this.classList.add('is-opening');"
+            "setTimeout(()=>{window.location.href=this.href;},850);\">"
+            f"{card}</a>"
+        )
     return card
 
 
@@ -1100,8 +1129,6 @@ def render_lottery_page() -> None:
             draw_index = int(draw_index_raw)
             theme = POT_THEMES[draw_index]
             draw_result = perform_draw(theme["name"])
-            render_pot_grid(selected_index=draw_index)
-            time.sleep(2.15)
             st.session_state.last_result = draw_result
             st.session_state.balloons_shown = False
             st.query_params.clear()
@@ -1129,10 +1156,15 @@ def render_admin_page() -> None:
         st.markdown("# 藝鍋物抽獎管理後台")
     with top_right:
         if st.button("返回抽獎頁", width="stretch", type="primary"):
+            st.session_state.force_lottery_page = True
             st.session_state.pop("last_result", None)
             st.session_state.pop("balloons_shown", None)
             st.query_params.clear()
             st.rerun()
+        st.markdown(
+            "<a class='admin-return-link' href='?page=lottery&admin=0' target='_self'>直接返回</a>",
+            unsafe_allow_html=True,
+        )
 
     status = current_status()
     metric_cols = st.columns(4)
@@ -1361,7 +1393,10 @@ try:
     if page_mode == "lottery":
         st.session_state.pop("last_result", None)
         st.session_state.pop("balloons_shown", None)
-    admin_mode = str(st.query_params.get("admin", "0")) == "1" and page_mode != "lottery"
+    if st.session_state.pop("force_lottery_page", False):
+        admin_mode = False
+    else:
+        admin_mode = str(st.query_params.get("admin", "0")) == "1" and page_mode != "lottery"
 except Exception:
     admin_mode = False
 

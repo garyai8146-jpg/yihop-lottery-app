@@ -1091,17 +1091,7 @@ def render_admin_link() -> None:
 
 
 def render_admin_page() -> None:
-    top_left, top_right = st.columns([4, 1])
-    with top_left:
-        st.markdown("# 藝鍋物抽獎管理後台")
-    with top_right:
-        if st.button("返回抽獎頁面", width="stretch", type="primary"):
-            st.session_state.force_lottery_page = True
-            st.session_state.pop("last_result", None)
-            st.session_state.pop("balloons_shown", None)
-            st.query_params["page"] = "lottery"
-            st.query_params["admin"] = "0"
-            st.rerun()
+    st.markdown("# 藝鍋物抽獎管理後台")
 
     status = current_status()
     metric_cols = st.columns(4)
@@ -1112,15 +1102,23 @@ def render_admin_page() -> None:
     metric_cols[3].metric("累積抽獎", total_draws)
 
     st.markdown("### 櫃檯操作")
-    action_cols = st.columns(3)
+    action_cols = st.columns(4)
     with action_cols[0]:
+        if st.button("返回抽獎頁面", width="stretch", type="primary"):
+            st.session_state.force_lottery_page = True
+            st.session_state.pop("last_result", None)
+            st.session_state.pop("balloons_shown", None)
+            st.query_params["page"] = "lottery"
+            st.query_params["admin"] = "0"
+            st.rerun()
+    with action_cols[1]:
         if st.button("✅ 下一位客人", width="stretch", type="primary"):
             next_customer()
             st.session_state.pop("last_result", None)
             st.session_state.pop("balloons_shown", None)
             st.success("已切換到下一位客人。")
             st.rerun()
-    with action_cols[1]:
+    with action_cols[2]:
         if st.button("↩ 撤銷最後一抽", width="stretch"):
             try:
                 prize_name = undo_last_draw()
@@ -1129,7 +1127,7 @@ def render_admin_page() -> None:
                 st.rerun()
             except Exception as exc:
                 st.error(str(exc))
-    with action_cols[2]:
+    with action_cols[3]:
         enabled = status["enabled"]
         label = "⏸ 暫停活動" if enabled else "▶ 開放活動"
         if st.button(label, width="stretch"):

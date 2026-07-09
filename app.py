@@ -1095,20 +1095,7 @@ def render_admin_page() -> None:
     with top_left:
         st.markdown("# 藝鍋物抽獎管理後台")
     with top_right:
-        st.markdown(
-            """
-            <div
-                class="admin-return-link"
-                role="button"
-                tabindex="0"
-                onclick="window.location.href='?page=lottery&admin=0'"
-                onkeydown="if(event.key==='Enter'||event.key===' '){window.location.href='?page=lottery&admin=0'}"
-            >
-                返回抽獎頁面
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+        st.link_button("返回抽獎頁面", "?page=lottery&admin=0", type="primary", width="stretch")
 
     status = current_status()
     metric_cols = st.columns(4)

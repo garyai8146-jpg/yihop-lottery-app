@@ -26,7 +26,7 @@ except ImportError:  # Local fallback when Turso credentials are not configured.
 APP_DIR = Path(__file__).resolve().parent
 DB_PATH = Path(os.getenv("LOTTERY_DB_PATH", APP_DIR / "lottery.db"))
 COMPONENT_DIR = APP_DIR / "components" / "clickable_pots"
-clickable_pots = components.declare_component("clickable_pots_opening_fx_v7", path=str(COMPONENT_DIR))
+clickable_pots = components.declare_component("clickable_pots_opening_fx_v8", path=str(COMPONENT_DIR))
 DEFAULT_ADMIN_PIN = os.getenv("LOTTERY_ADMIN_PIN", "1688")
 TAIPEI_TZ_LABEL = "Asia/Taipei"
 TAIPEI_TZ = ZoneInfo(TAIPEI_TZ_LABEL)
@@ -179,6 +179,14 @@ def init_database() -> None:
                 """,
                 DEFAULT_PRIZES,
             )
+
+
+# YIHOP_SPEED_OPTIMIZATION_V8
+@st.cache_resource(show_spinner=False)
+def initialize_database_once() -> bool:
+    """Run schema setup once per server process."""
+    init_database()
+    return True
 
 
 def ensure_column(conn: Any, table: str, column: str, definition: str) -> None:
@@ -365,25 +373,6 @@ def perform_draw(pot_name: str) -> dict[str, Any]:
                 ON CONFLICT(key) DO UPDATE SET value = excluded.value
                 """,
                 (str(draw_id),),
-            )
-            conn.execute(
-                """
-                INSERT INTO settings(key, value) VALUES ('draws_per_customer', '1')
-                ON CONFLICT(key) DO UPDATE SET value = '1'
-                """
-            )
-            conn.execute(
-                """
-                INSERT INTO settings(key, value) VALUES ('current_draws_used', '0')
-                ON CONFLICT(key) DO UPDATE SET value = '0'
-                """
-            )
-            conn.execute(
-                """
-                INSERT INTO settings(key, value) VALUES ('current_customer_no', ?)
-                ON CONFLICT(key) DO UPDATE SET value = excluded.value
-                """,
-                (str(participant_no + 1),),
             )
             conn.execute("COMMIT")
 
@@ -1347,13 +1336,8 @@ def render_lottery_page() -> None:
             type="primary",
             key=f"finish_draw_{draw_identity}",
         ):
-            set_settings(
-                {
-                    "active_result_id": "",
-                    "draws_per_customer": "1",
-                    "current_draws_used": "0",
-                }
-            )
+            set_settings({"active_result_id": ""})
+            st.session_state.skip_active_result_lookup_once = True
             st.session_state.pop("last_result", None)
             st.session_state.pop("balloons_shown", None)
             st.session_state.pop("draw_error", None)
@@ -1372,7 +1356,18 @@ def render_lottery_page() -> None:
             st.error(str(pending_error))
 
         result = st.session_state.get("last_result")
-        pending_id_text = get_setting("active_result_id", "").strip()
+        skip_pending_lookup = bool(
+            st.session_state.pop(
+                "skip_active_result_lookup_once",
+                False,
+            )
+        )
+        pending_id_text = ""
+        if result is None and not skip_pending_lookup:
+            pending_id_text = get_setting(
+                "active_result_id",
+                "",
+            ).strip()
 
         if result is None and pending_id_text.isdigit():
             result = draw_result_by_id(int(pending_id_text))
@@ -1429,7 +1424,7 @@ def render_lottery_page() -> None:
 
     screen.empty()
     with screen.container():
-        render_header(current_status())
+        render_header(status)
         finish_result(draw_result)
 
     st.stop()
@@ -1629,7 +1624,7 @@ def render_admin_page() -> None:
             st.rerun()
 
 
-init_database()
+initialize_database_once()
 apply_global_styles()
 
 try:

@@ -7,7 +7,6 @@ import io
 import os
 import random
 import sqlite3
-import time
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
@@ -15,6 +14,7 @@ from typing import Any, Iterator
 
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 
 try:
     import libsql
@@ -24,6 +24,8 @@ except ImportError:  # Local fallback when Turso credentials are not configured.
 
 APP_DIR = Path(__file__).resolve().parent
 DB_PATH = Path(os.getenv("LOTTERY_DB_PATH", APP_DIR / "lottery.db"))
+COMPONENT_DIR = APP_DIR / "components" / "clickable_pots"
+clickable_pots = components.declare_component("clickable_pots", path=str(COMPONENT_DIR))
 DEFAULT_ADMIN_PIN = os.getenv("LOTTERY_ADMIN_PIN", "1688")
 TAIPEI_TZ_LABEL = "Asia/Taipei"
 
@@ -721,59 +723,6 @@ def apply_global_styles() -> None:
             object-fit:cover;
             transform:translateY(-4%);
         }
-        .pot-link {
-            display:block;
-            text-decoration:none !important;
-            color:inherit !important;
-        }
-        .pot-link:hover .pot-card {
-            transform:translateY(-3px) scale(1.01);
-            filter:saturate(1.08) brightness(1.04);
-            box-shadow:0 14px 30px rgba(0,0,0,.42), inset 0 0 0 2px rgba(255,255,255,.2);
-        }
-        .pot-link:active .pot-card {
-            transform:scale(.97);
-            filter:brightness(1.16) saturate(1.18);
-        }
-        .pot-tile {
-            position:relative;
-            overflow:hidden;
-            border-radius:8px;
-            margin-bottom:.85rem;
-            background:#130d09;
-            box-shadow:0 10px 24px rgba(0,0,0,.35);
-        }
-        .pot-tile div[data-testid="stButton"] {
-            position:absolute;
-            inset:0;
-            z-index:20;
-            margin-top:0;
-        }
-        .pot-tile div[data-testid="stButton"] > button {
-            min-height:100%;
-            height:100%;
-            width:100%;
-            border-radius:8px;
-            border:0;
-            background:transparent;
-            box-shadow:none;
-            color:transparent;
-            font-size:0;
-            padding:0;
-        }
-        .pot-tile div[data-testid="stButton"] > button:hover {
-            transform:none;
-            box-shadow:inset 0 0 0 3px rgba(255,216,154,.75);
-            background:rgba(255,235,180,.08);
-        }
-        .pot-tile div[data-testid="stButton"] > button:active {
-            background:rgba(255,235,180,.16);
-        }
-        .pot-tile div[data-testid="stButton"] > button:focus,
-        .pot-tile div[data-testid="stButton"] > button:focus-visible {
-            outline:3px solid rgba(255,216,154,.85);
-            outline-offset:2px;
-        }
         .pot-card:before {
             content:"";
             position:absolute;
@@ -903,30 +852,6 @@ def apply_global_styles() -> None:
         .pot-body:before { left:-35px; } .pot-body:after { right:-35px; }
         .pot-icon { position:absolute; z-index:4; top:130px; left:50%; transform:translateX(-50%); color:#ffe9bd; font-size:2rem; font-weight:900; font-family:"DFKai-SB","KaiTi",serif; text-shadow:0 0 18px var(--accent); }
         .pot-name { position:absolute; left:0; right:0; bottom:10px; z-index:4; color:#f9dfb4; font-weight:850; font-size:1.15rem; letter-spacing:.1em; }
-        .pot-link.is-opening {
-            pointer-events:none;
-        }
-        .pot-link.is-opening .pot-card {
-            animation:draw-card-pulse .75s ease-in-out infinite alternate;
-            filter:brightness(1.12) saturate(1.18);
-        }
-        .pot-link.is-opening .pot-card:after {
-            content:"開鍋中...";
-            position:absolute;
-            inset:0;
-            z-index:9;
-            display:flex;
-            align-items:center;
-            justify-content:center;
-            color:#fff7d8;
-            font-size:1.6rem;
-            font-weight:950;
-            letter-spacing:.12em;
-            text-shadow:0 3px 8px rgba(0,0,0,.5);
-            background:rgba(116,24,18,.32);
-            backdrop-filter:blur(1px);
-        }
-        @keyframes draw-card-pulse { to { transform:scale(.97); box-shadow:0 0 38px rgba(255,205,105,.55); } }
         div[data-testid="stButton"] > button {
             min-height:2.5rem;
             border-radius:8px;
@@ -1066,28 +991,6 @@ def image_data_uri(relative_path: str) -> str:
     return f"data:image/webp;base64,{encoded}"
 
 
-def pot_card(theme: dict[str, str]) -> str:
-    image_src = image_data_uri(theme["image"])
-    return f"""
-    <div class="pot-card" style="--accent:{theme['accent']};--glow:{theme['glow']};--poster-a:{theme['poster_a']};--poster-b:{theme['poster_b']};--poster-c:{theme['poster_c']}">
-        <img src="{image_src}" alt="{escape_html(theme['name'])} 火鍋抽抽樂 START">
-    </div>
-    """
-
-
-def opening_animation(pot_name: str, theme: dict[str, str]) -> str:
-    return f"""
-    <div class="opening-stage" style="--accent:{theme['accent']}">
-        <div class="opening-pot">
-            <div class="flare"></div>
-            <div class="lid"></div>
-            <div class="body"></div>
-        </div>
-        <div class="opening-text">{escape_html(pot_name)} 開鍋中…</div>
-    </div>
-    """
-
-
 def render_result(result: dict[str, Any]) -> None:
     kicker = "恭喜中獎" if result["is_win"] else "謝謝參加"
     ticket_no = f"{int(result.get('customer_no', 0)):04d}-{int(result.get('draw_no', 0)):02d}-{int(result.get('id', 0)):06d}"
@@ -1124,24 +1027,11 @@ def render_customer_summary(customer_no: int) -> None:
     )
 
 
-def set_pending_draw(index: int) -> None:
-    st.session_state.pending_draw_index = index
-
-
-def render_pot_grid(selected_index: int | None = None) -> None:
-    for row_start in range(0, 4, 2):
-        columns = st.columns(2, gap="small")
-        for offset, column in enumerate(columns):
-            index = row_start + offset
-            theme = POT_THEMES[index]
-            with column:
-                st.markdown("<div class='pot-tile'>", unsafe_allow_html=True)
-                if selected_index == index:
-                    st.markdown(opening_animation(theme["name"], theme), unsafe_allow_html=True)
-                else:
-                    st.markdown(pot_card(theme), unsafe_allow_html=True)
-                    st.button(f"抽 {theme['name']}", key=f"draw_pot_{index}", width="stretch", on_click=set_pending_draw, args=(index,))
-                st.markdown("</div>", unsafe_allow_html=True)
+def render_pot_grid() -> int | None:
+    images = [image_data_uri(theme["image"]) for theme in POT_THEMES[:4]]
+    names = [theme["name"] for theme in POT_THEMES[:4]]
+    selected = clickable_pots(images=images, names=names, default=None, key="clickable_pots")
+    return None if selected is None else int(selected)
 
 
 def render_lottery_page() -> None:
@@ -1174,24 +1064,18 @@ def render_lottery_page() -> None:
         unsafe_allow_html=True,
     )
 
-    pending_draw = st.session_state.get("pending_draw_index")
-    if pending_draw is not None:
+    selected_draw = render_pot_grid()
+    if selected_draw is not None:
         try:
-            draw_index = int(pending_draw)
+            draw_index = int(selected_draw)
             theme = POT_THEMES[draw_index]
-            render_pot_grid(selected_index=draw_index)
-            time.sleep(0.9)
             draw_result = perform_draw(theme["name"])
             st.session_state.last_result = draw_result
             st.session_state.balloons_shown = False
-            st.session_state.pop("pending_draw_index", None)
             st.rerun()
         except Exception as exc:
-            st.session_state.pop("pending_draw_index", None)
             st.error(str(exc))
             render_pot_grid()
-    else:
-        render_pot_grid()
 
     render_admin_link()
 

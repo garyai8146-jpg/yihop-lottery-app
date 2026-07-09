@@ -708,9 +708,10 @@ def apply_global_styles() -> None:
         }
         .pot-card img {
             width:100%;
-            height:100%;
+            height:108%;
             display:block;
             object-fit:cover;
+            transform:translateY(-4%);
         }
         .pot-link {
             display:block;

@@ -1,132 +1,81 @@
 <!doctype html>
 <html lang="zh-Hant">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <style>
-    html, body {
-      margin: 0;
-      padding: 0;
-      background: transparent;
-      overflow: hidden;
-      font-family: sans-serif;
-    }
-    .grid {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 8px;
-      width: 100%;
-      box-sizing: border-box;
-    }
-    .card {
-      position: relative;
-      width: 100%;
-      aspect-ratio: 1 / 1;
-      padding: 0;
-      margin: 0;
-      overflow: hidden;
-      border-radius: 8px;
-      border: 3px solid rgba(255, 248, 223, .95);
-      background: #130d09;
-      box-shadow: 0 10px 24px rgba(0, 0, 0, .35);
-      cursor: pointer;
-      appearance: none;
-      -webkit-appearance: none;
-    }
-    .card img {
-      width: 100%;
-      height: 108%;
-      display: block;
-      object-fit: cover;
-      transform: translateY(-4%);
-      pointer-events: none;
-    }
-    .card:hover {
-      filter: saturate(1.08) brightness(1.04);
-      box-shadow: 0 14px 30px rgba(0, 0, 0, .42), inset 0 0 0 2px rgba(255, 255, 255, .2);
-    }
-    .card:active {
-      filter: brightness(1.16) saturate(1.18);
-      transform: scale(.98);
-    }
-    .card.opening {
-      pointer-events: none;
-      animation: pulse .75s ease-in-out infinite alternate;
-    }
-    .card.opening::after {
-      content: "開鍋中...";
-      position: absolute;
-      inset: 0;
-      z-index: 3;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: #fff7d8;
-      font-size: 1.55rem;
-      font-weight: 950;
-      letter-spacing: .12em;
-      text-shadow: 0 3px 8px rgba(0, 0, 0, .5);
-      background: rgba(116, 24, 18, .32);
-      backdrop-filter: blur(1px);
-    }
-    @keyframes pulse {
-      to { transform: scale(.97); box-shadow: 0 0 38px rgba(255, 205, 105, .55); }
-    }
-  </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;background:transparent;overflow:hidden;font-family:"Microsoft JhengHei","Noto Sans TC",sans-serif}
+body{position:relative}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;width:100%}
+.card{position:relative;width:100%;aspect-ratio:1;padding:0;margin:0;overflow:hidden;border-radius:8px;border:3px solid rgba(255,248,223,.95);background:#130d09;box-shadow:0 10px 24px rgba(0,0,0,.35);cursor:pointer;appearance:none;-webkit-appearance:none;transition:transform .28s,opacity .28s,filter .28s,box-shadow .28s}
+.card:disabled{opacity:1}.card img{width:100%;height:108%;display:block;object-fit:cover;transform:translateY(-4%);pointer-events:none}
+.card:hover{filter:saturate(1.08) brightness(1.04);box-shadow:0 14px 30px rgba(0,0,0,.42),inset 0 0 0 2px rgba(255,255,255,.2)}
+.card:active{transform:scale(.98);filter:brightness(1.16) saturate(1.18)}
+.grid.is-opening .card:not(.selected){opacity:.14;filter:blur(2px) grayscale(.4) brightness(.5);transform:scale(.93)}
+.grid.is-opening .card.selected{z-index:4;filter:saturate(1.25) brightness(1.1);box-shadow:0 0 0 3px #fff0af,0 0 44px rgba(255,190,50,.86),0 18px 42px rgba(0,0,0,.55);animation:selected .48s ease-in-out infinite alternate}
+@keyframes selected{from{transform:scale(.985)}to{transform:scale(1.03)}}
+.overlay{position:absolute;inset:0;z-index:50;display:grid;place-items:center;overflow:hidden;opacity:0;visibility:hidden;pointer-events:none;background:radial-gradient(circle at 50% 50%,rgba(255,193,49,.2),transparent 28%),radial-gradient(circle at 50% 50%,rgba(151,29,18,.82),rgba(13,7,5,.97) 75%);transition:opacity .18s,visibility .18s}
+.overlay.active{opacity:1;visibility:visible}.overlay:before{content:"";position:absolute;inset:-30%;background:repeating-conic-gradient(from 0deg,rgba(255,222,122,.14) 0 3deg,transparent 3deg 14deg);animation:rays 6s linear infinite}
+@keyframes rays{to{transform:rotate(360deg)}}
+.stage{position:relative;width:min(80%,520px);aspect-ratio:1;display:grid;place-items:center;transform:scale(.52) rotate(-4deg);opacity:0}
+.overlay.active .stage{animation:stage .34s cubic-bezier(.18,.9,.2,1.25) forwards,rumble .11s linear .42s 8 alternate}
+@keyframes stage{to{transform:scale(1) rotate(0);opacity:1}}@keyframes rumble{from{transform:translateX(-5px) rotate(-.8deg)}to{transform:translateX(5px) rotate(.8deg)}}
+.shell{position:absolute;inset:7%;overflow:hidden;border-radius:22px;border:4px solid rgba(255,241,185,.97);background:#2b120d;box-shadow:0 0 0 2px rgba(135,32,20,.9),0 0 52px rgba(255,184,47,.78),0 26px 54px rgba(0,0,0,.64)}
+.fx-image{width:100%;height:108%;object-fit:cover;transform:translateY(-4%) scale(1);filter:saturate(1.08)}
+.overlay.active .fx-image{animation:boil 1.55s ease-in-out forwards}
+@keyframes boil{0%{transform:translateY(-4%) scale(1);filter:saturate(1.05) brightness(.82)}30%{transform:translateY(-4%) scale(1.055) rotate(-1deg);filter:saturate(1.2) brightness(1)}50%{transform:translateY(-4%) scale(1.085) rotate(1deg);filter:saturate(1.32) brightness(1.1)}72%{transform:translateY(-4%) scale(1.055) rotate(-.8deg);filter:saturate(1.4) brightness(1.16)}100%{transform:translateY(-4%) scale(1.12);filter:saturate(1.52) brightness(1.3)}}
+.shade{position:absolute;inset:7%;z-index:3;border-radius:22px;background:radial-gradient(circle at 50% 56%,transparent 0 35%,rgba(0,0,0,.18) 72%),linear-gradient(180deg,rgba(45,5,0,.08),rgba(40,0,0,.58))}
+.ring{position:absolute;z-index:4;width:46%;aspect-ratio:1;border-radius:50%;border:7px solid rgba(255,228,135,.9);box-shadow:0 0 24px rgba(255,215,107,.95),inset 0 0 22px rgba(255,195,55,.82);opacity:0}
+.overlay.active .ring.one{animation:ring 1.05s ease-out .28s infinite}.overlay.active .ring.two{animation:ring 1.05s ease-out .7s infinite}
+@keyframes ring{0%{transform:scale(.25);opacity:0}22%{opacity:.92}100%{transform:scale(2.2);opacity:0}}
+.steam{position:absolute;z-index:6;left:50%;top:5%;width:72%;height:48%;transform:translateX(-50%);pointer-events:none}
+.steam span{position:absolute;bottom:0;width:18px;height:100px;border-left:8px solid rgba(255,250,226,.82);border-radius:50%;filter:blur(2px);opacity:0}
+.steam span:nth-child(1){left:8%}.steam span:nth-child(2){left:24%;height:120px}.steam span:nth-child(3){left:40%}.steam span:nth-child(4){left:56%;height:128px}.steam span:nth-child(5){left:72%;height:106px}.steam span:nth-child(6){left:88%;height:118px}
+.overlay.active .steam span{animation:steam 1.18s ease-out infinite}.overlay.active .steam span:nth-child(2){animation-delay:-.72s}.overlay.active .steam span:nth-child(3){animation-delay:-.35s}.overlay.active .steam span:nth-child(4){animation-delay:-.88s}.overlay.active .steam span:nth-child(5){animation-delay:-.52s}.overlay.active .steam span:nth-child(6){animation-delay:-.18s}
+@keyframes steam{0%{transform:translateY(30px) translateX(0) scale(.72);opacity:0}32%{opacity:.88}100%{transform:translateY(-125px) translateX(22px) scale(1.38);opacity:0}}
+.sparks{position:absolute;z-index:7;inset:0;pointer-events:none}.spark{position:absolute;left:50%;top:50%;width:9px;height:22px;border-radius:999px;background:linear-gradient(#fff8bd,#ff9f1f);box-shadow:0 0 14px #ffd85c;opacity:0;transform-origin:50% 180px}
+.overlay.active .spark{animation:spark .88s ease-out var(--delay) forwards}@keyframes spark{0%{transform:rotate(var(--angle)) translateY(-28px) scale(.25);opacity:0}18%{opacity:1}100%{transform:rotate(var(--angle)) translateY(-235px) scale(.7);opacity:0}}
+.copy{position:absolute;z-index:10;left:8%;right:8%;bottom:12%;text-align:center;color:#fff7d5;text-shadow:0 3px 8px rgba(0,0,0,.9),0 0 24px rgba(255,178,38,.9)}
+.name{display:block;margin-bottom:.35rem;font-size:clamp(1rem,3vw,1.4rem);font-weight:900;letter-spacing:.12em}.title{display:block;font-size:clamp(1.85rem,6vw,3rem);line-height:1.15;font-weight:950;letter-spacing:.1em;animation:title .46s ease-in-out infinite alternate}
+@keyframes title{to{transform:scale(1.07);color:#fff0a9}}.dots:after{content:"";animation:dots 1s steps(4,end) infinite}@keyframes dots{0%{content:""}25%{content:"・"}50%{content:"・・"}75%,100%{content:"・・・"}}
+.flash{position:absolute;inset:0;z-index:20;background:#fff8d1;opacity:0;pointer-events:none}.overlay.climax .flash{animation:flash .48s ease-out forwards}@keyframes flash{0%{opacity:0}38%{opacity:.96}100%{opacity:0}}
+@media(max-width:700px){.stage{width:88%}.shell,.shade{inset:5%}.title{font-size:clamp(1.65rem,7.6vw,2.45rem)}.copy{bottom:9%}}
+</style>
 </head>
 <body>
-  <div id="root" class="grid"></div>
-  <script>
-    const root = document.getElementById("root");
-
-    function post(type, payload) {
-      window.parent.postMessage({ isStreamlitMessage: true, type, ...payload }, "*");
-    }
-
-    function setFrameHeight() {
-      post("streamlit:setFrameHeight", { height: document.documentElement.scrollHeight });
-    }
-
-    function setComponentValue(value) {
-      post("streamlit:setComponentValue", { value, dataType: "json" });
-    }
-
-    function render(args) {
-      const images = args.images || [];
-      const names = args.names || [];
-      root.innerHTML = "";
-      images.forEach((src, index) => {
-        const button = document.createElement("button");
-        button.className = "card";
-        button.type = "button";
-        button.setAttribute("aria-label", `抽 ${names[index] || `第 ${index + 1} 鍋`}`);
-
-        const image = document.createElement("img");
-        image.src = src;
-        image.alt = names[index] || "";
-        button.appendChild(image);
-
-        button.addEventListener("click", () => {
-          button.classList.add("opening");
-          // YIHOP_COMPONENT_EVENT_V3
-          const eventId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-          root.querySelectorAll(".card").forEach((card) => {
-            card.disabled = true;
-          });
-          setTimeout(() => setComponentValue({ index, eventId }), 450);
-        });
-        root.appendChild(button);
-      });
-      requestAnimationFrame(setFrameHeight);
-    }
-
-    window.addEventListener("message", (event) => {
-      if (event.data.type === "streamlit:render") {
-        render(event.data.args || {});
-      }
-    });
-
-    post("streamlit:componentReady", { apiVersion: 1 });
-  </script>
+<div id="root" class="grid"></div>
+<div id="overlay" class="overlay" aria-hidden="true">
+  <div class="stage">
+    <div class="shell"><img id="fxImage" class="fx-image" alt=""></div>
+    <div class="shade"></div><div class="ring one"></div><div class="ring two"></div>
+    <div class="steam"><span></span><span></span><span></span><span></span><span></span><span></span></div>
+    <div id="sparks" class="sparks"></div>
+    <div class="copy"><span id="fxName" class="name"></span><span class="title">好運沸騰中<span class="dots"></span></span></div>
+  </div>
+  <div class="flash"></div>
+</div>
+<script>
+// YIHOP_OPENING_FX_V7
+const root=document.getElementById("root"),overlay=document.getElementById("overlay"),fxImage=document.getElementById("fxImage"),fxName=document.getElementById("fxName"),sparks=document.getElementById("sparks");
+let opening=false;
+function post(type,payload){window.parent.postMessage({isStreamlitMessage:true,type,...payload},"*")}
+function setHeight(){post("streamlit:setFrameHeight",{height:document.documentElement.scrollHeight})}
+function setValue(value){post("streamlit:setComponentValue",{value,dataType:"json"})}
+function buildSparks(){sparks.innerHTML="";for(let i=0;i<18;i+=1){const s=document.createElement("i");s.className="spark";s.style.setProperty("--angle",`${i*20}deg`);s.style.setProperty("--delay",`${.22+(i%6)*.045}s`);sparks.appendChild(s)}}
+function begin(button,src,name,index){
+  if(opening)return;opening=true;root.classList.add("is-opening");button.classList.add("selected");root.querySelectorAll(".card").forEach(card=>card.disabled=true);
+  fxImage.src=src;fxImage.alt=name||"";fxName.textContent=name||"神秘好鍋";buildSparks();overlay.classList.remove("climax");overlay.classList.add("active");overlay.setAttribute("aria-hidden","false");setHeight();
+  if(navigator.vibrate)navigator.vibrate([45,35,70]);
+  setTimeout(()=>{overlay.classList.add("climax");if(navigator.vibrate)navigator.vibrate(80)},1220);
+  setTimeout(()=>{const eventId=`${Date.now()}-${Math.random().toString(36).slice(2)}`;setValue({index,eventId})},1720);
+}
+function render(args){
+  if(opening)return;const images=args.images||[],names=args.names||[];root.innerHTML="";
+  images.forEach((src,index)=>{const b=document.createElement("button");b.className="card";b.type="button";b.setAttribute("aria-label",`抽 ${names[index]||`第 ${index+1} 鍋`}`);const img=document.createElement("img");img.src=src;img.alt=names[index]||"";b.appendChild(img);b.addEventListener("click",()=>begin(b,src,names[index]||"",index));root.appendChild(b)});
+  requestAnimationFrame(setHeight);
+}
+window.addEventListener("message",event=>{if(event.data.type==="streamlit:render")render(event.data.args||{})});
+post("streamlit:componentReady",{apiVersion:1});
+</script>
 </body>
 </html>

@@ -26,7 +26,7 @@ except ImportError:  # Local fallback when Turso credentials are not configured.
 APP_DIR = Path(__file__).resolve().parent
 DB_PATH = Path(os.getenv("LOTTERY_DB_PATH", APP_DIR / "lottery.db"))
 COMPONENT_DIR = APP_DIR / "components" / "clickable_pots"
-clickable_pots = components.declare_component("clickable_pots", path=str(COMPONENT_DIR))
+clickable_pots = components.declare_component("clickable_pots_opening_fx_v7", path=str(COMPONENT_DIR))
 DEFAULT_ADMIN_PIN = os.getenv("LOTTERY_ADMIN_PIN", "1688")
 TAIPEI_TZ_LABEL = "Asia/Taipei"
 TAIPEI_TZ = ZoneInfo(TAIPEI_TZ_LABEL)

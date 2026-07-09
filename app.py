@@ -492,6 +492,16 @@ def prize_summary() -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def is_no_win_prize_name(name: str) -> bool:
+    return any(keyword in name for keyword in ("未中獎", "沒中", "再接再厲", "謝謝"))
+
+
+def calculate_prize_quantity(total_quantity: int, probability: float, name: str) -> int:
+    if total_quantity <= 0 or is_no_win_prize_name(name):
+        return 0
+    return max(0, int(round(total_quantity * probability / 100)))
+
+
 def save_prizes(edited: pd.DataFrame) -> None:
     clean_rows: list[dict[str, Any]] = []
     for _, raw in edited.iterrows():
@@ -506,7 +516,7 @@ def save_prizes(edited: pd.DataFrame) -> None:
             result_text = ""
         is_win_value = raw.get("is_win", None)
         if pd.isna(is_win_value):
-            is_win = not any(keyword in name for keyword in ("未中獎", "沒中", "再接再厲", "謝謝"))
+            is_win = not is_no_win_prize_name(name)
         else:
             is_win = bool(is_win_value)
         row_id = raw.get("id")
@@ -1171,7 +1181,7 @@ def render_admin_page() -> None:
 
     st.divider()
     st.markdown("### 獎項設定")
-    st.caption("只要設定獎項名稱、抽中機率與數量。機率加總要剛好 100%，數量填 0 表示不限量。")
+    st.caption("手機填寫版：先填總數量，再填每個獎項名稱與機率。各獎項數量會自動換算。")
     prizes = load_prizes(include_disabled=True)
     prize_df = pd.DataFrame(prizes)
     if prize_df.empty:
@@ -1181,28 +1191,87 @@ def render_admin_page() -> None:
     editor_columns = ["id", "enabled", "emoji", "name", "probability", "quantity", "issued", "is_win", "result_text"]
     prize_df = prize_df.reindex(columns=editor_columns)
 
-    st.info("範例：折價券 10%、小菜一份 20%、未中獎 70%。有實體獎品就填數量，沒有庫存限制就填 0。")
-    edited = st.data_editor(
-        prize_df,
-        hide_index=True,
-        num_rows="dynamic",
-        width="stretch",
-        column_order=["enabled", "name", "probability", "quantity"],
-        disabled=["id", "issued", "is_win", "result_text"],
-        column_config={
-            "enabled": st.column_config.CheckboxColumn("使用", default=True, width="small", help="取消勾選後，這個獎項不會被抽出。"),
-            "name": st.column_config.TextColumn("獎項名稱", required=True, width="large", help="客人抽到時看到的名稱，例如：折價券、未中獎。"),
-            "probability": st.column_config.NumberColumn("抽中機率（%）", min_value=0.0, max_value=100.0, step=0.1, format="%.1f", help="所有使用中的獎項加總必須剛好 100%。"),
-            "quantity": st.column_config.NumberColumn("數量", min_value=0, step=1, help="填 0 表示不限量；有限量獎項抽完後會自動停止抽出。"),
-        },
-        key="prize_editor",
+    active_prizes = prize_df[prize_df["enabled"].fillna(1).astype(int) == 1]
+    default_total_quantity = int(
+        active_prizes.loc[
+            active_prizes["name"].fillna("").map(lambda value: not is_no_win_prize_name(str(value))),
+            "quantity",
+        ].fillna(0).astype(int).sum()
     )
+    default_prize_count = max(1, len(active_prizes) if not active_prizes.empty else len(prize_df))
+
+    st.info("範例：總數量 100，折價券 10%、小菜一份 20%、未中獎 70%。系統會自動算出折價券 10 張、小菜 20 份；未中獎不限量。")
+    total_quantity = st.number_input(
+        "獎項總數量",
+        min_value=0,
+        step=1,
+        value=max(0, default_total_quantity),
+        help="用來自動換算各獎項份數。填 0 表示全部不限量。",
+    )
+    prize_count = st.number_input(
+        "要設定幾個獎項",
+        min_value=1,
+        max_value=30,
+        step=1,
+        value=int(default_prize_count),
+        help="包含未中獎項目。例如有 2 個獎品加 1 個未中獎，就填 3。",
+    )
+
+    edited_rows: list[dict[str, Any]] = []
+    with st.form("prize_settings_form"):
+        for index in range(int(prize_count)):
+            raw = prize_df.iloc[index].to_dict() if index < len(prize_df) else {}
+            row_id = raw.get("id")
+            current_name = str(raw.get("name", "") if not pd.isna(raw.get("name", "")) else "")
+            current_probability = float(raw.get("probability", 0.0) or 0.0)
+            st.markdown(f"#### 獎項 {index + 1}")
+            enabled = st.checkbox(
+                "使用這個獎項",
+                value=bool(raw.get("enabled", True)),
+                key=f"prize_enabled_{index}",
+            )
+            name = st.text_input(
+                "獎項名稱",
+                value=current_name,
+                placeholder="例如：折價券、牛肉盤、未中獎",
+                key=f"prize_name_{index}",
+            )
+            probability = st.number_input(
+                "抽中機率（%）",
+                min_value=0.0,
+                max_value=100.0,
+                step=0.1,
+                value=max(0.0, min(100.0, current_probability)),
+                format="%.1f",
+                key=f"prize_probability_{index}",
+            )
+            calculated_quantity = calculate_prize_quantity(int(total_quantity), float(probability), name.strip())
+            if is_no_win_prize_name(name.strip()):
+                st.caption("自動數量：不限量")
+            else:
+                st.caption(f"自動數量：約 {calculated_quantity} 份")
+            edited_rows.append(
+                {
+                    "id": None if pd.isna(row_id) else int(row_id),
+                    "enabled": enabled,
+                    "emoji": raw.get("emoji", "🎁"),
+                    "name": name,
+                    "probability": probability,
+                    "quantity": calculated_quantity,
+                    "issued": int(raw.get("issued", 0) or 0),
+                    "is_win": None,
+                    "result_text": "",
+                }
+            )
+        save_prize_settings = st.form_submit_button("儲存獎項設定", width="stretch", type="primary")
+
+    edited = pd.DataFrame(edited_rows, columns=editor_columns)
     enabled_probability = float(edited.loc[edited["enabled"] == True, "probability"].fillna(0).sum()) if not edited.empty else 0.0  # noqa: E712
     if abs(enabled_probability - 100.0) <= 0.001:
         st.success(f"目前使用中的機率合計：{enabled_probability:.1f}%")
     else:
         st.error(f"目前使用中的機率合計：{enabled_probability:.1f}%，請調整到 100%。")
-    if st.button("儲存獎品設定", width="stretch", type="primary"):
+    if save_prize_settings:
         try:
             save_prizes(edited)
             st.success("獎品設定已儲存。")

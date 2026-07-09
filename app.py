@@ -11,6 +11,7 @@ from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterator
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import streamlit as st
@@ -28,6 +29,7 @@ COMPONENT_DIR = APP_DIR / "components" / "clickable_pots"
 clickable_pots = components.declare_component("clickable_pots", path=str(COMPONENT_DIR))
 DEFAULT_ADMIN_PIN = os.getenv("LOTTERY_ADMIN_PIN", "1688")
 TAIPEI_TZ_LABEL = "Asia/Taipei"
+TAIPEI_TZ = ZoneInfo(TAIPEI_TZ_LABEL)
 
 POT_THEMES = [
     {"name": "好運紅鍋", "icon": "福", "accent": "#e54532", "glow": "rgba(217,68,50,.46)", "poster_a": "#ff6b57", "poster_b": "#e53b2d", "poster_c": "#ffb03c", "image": "assets/pot_card_0.webp"},
@@ -521,9 +523,90 @@ def format_draw_time(value: Any) -> str:
     if not text:
         return ""
     try:
-        return datetime.fromisoformat(text).strftime("%Y-%m-%d %H:%M")
+        parsed = datetime.fromisoformat(text)
+        if parsed.tzinfo is not None:
+            parsed = parsed.astimezone(TAIPEI_TZ)
+        return parsed.strftime("%Y-%m-%d %H:%M")
     except ValueError:
         return text.replace("T", " ")[:16]
+
+
+def draw_date_key(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    try:
+        parsed = datetime.fromisoformat(text)
+        if parsed.tzinfo is not None:
+            parsed = parsed.astimezone(TAIPEI_TZ)
+        return parsed.strftime("%Y-%m-%d")
+    except ValueError:
+        return text[:10]
+
+
+def render_inventory_summary(records: pd.DataFrame) -> None:
+    def panel(title: str, headers: list[str], body_rows: list[list[Any]]) -> str:
+        columns = " ".join(["1fr"] * len(headers))
+        row_style = f" style='grid-template-columns:{columns}'"
+        header_html = "".join(f"<div class='inventory-cell'>{escape_html(header)}</div>" for header in headers)
+        if body_rows:
+            rows_html = "".join(
+                f"<div class='inventory-row'{row_style}>"
+                + "".join(f"<div class='inventory-cell'>{escape_html(cell)}</div>" for cell in row)
+                + "</div>"
+                for row in body_rows
+            )
+        else:
+            rows_html = "<div class='inventory-empty'>目前沒有資料</div>"
+        return (
+            "<div class='inventory-panel'>"
+            f"<div class='inventory-title'>{escape_html(title)}</div>"
+            f"<div class='inventory-row header'{row_style}>{header_html}</div>"
+            f"{rows_html}"
+            "</div>"
+        )
+
+    prizes = load_prizes(include_disabled=True)
+    active_prizes = [prize for prize in prizes if int(prize["enabled"]) == 1]
+    inventory_rows: list[list[Any]] = []
+    for prize in active_prizes:
+        name = str(prize["name"])
+        if is_no_win_prize_name(name):
+            continue
+        quantity = int(prize["quantity"])
+        issued = int(prize["issued"])
+        inventory_rows.append(
+            [
+                name,
+                "不限量" if quantity == 0 else quantity,
+                issued,
+                "不限量" if quantity == 0 else max(0, quantity - issued),
+            ]
+        )
+
+    today = datetime.now(TAIPEI_TZ).strftime("%Y-%m-%d")
+    count_rows: list[list[Any]] = []
+    if records.empty:
+        today_records = pd.DataFrame()
+    else:
+        today_records = records[records["created_at"].map(draw_date_key) == today]
+    if not today_records.empty:
+        count_rows = (
+            today_records.groupby("prize_name")
+            .size()
+            .reset_index(name="數量")
+            .sort_values("數量", ascending=False)
+            .values
+            .tolist()
+        )
+
+    st.markdown(
+        "<div class='inventory-grid'>"
+        + panel("剩餘獎項", ["獎項", "總量", "已抽出", "剩餘"], inventory_rows)
+        + panel("今日抽出統計", ["抽獎結果", "數量"], count_rows)
+        + "</div>",
+        unsafe_allow_html=True,
+    )
 
 
 def save_prizes(edited: pd.DataFrame) -> None:
@@ -934,6 +1017,50 @@ def apply_global_styles() -> None:
         .summary-row { display:flex; align-items:center; gap:.8rem; padding:.65rem .3rem; border-bottom:1px dashed rgba(255,255,255,.12); }
         .summary-row:last-child{border-bottom:0}.summary-row .emoji{font-size:1.8rem}.summary-row .label{font-weight:750;color:#ffe5b6}
         .finish-note { text-align:center; color:#dbc6a8; margin:1.2rem 0 .3rem; font-size:1.08rem; }
+        .inventory-grid {
+            display:grid;
+            grid-template-columns:repeat(2, minmax(0, 1fr));
+            gap:1rem;
+            margin:.75rem 0 1.25rem;
+        }
+        .inventory-panel {
+            border:2px solid rgba(255,217,102,.9);
+            border-radius:10px;
+            overflow:hidden;
+            background:linear-gradient(180deg, rgba(18,44,20,.96), rgba(8,20,10,.96));
+            box-shadow:0 12px 28px rgba(0,0,0,.28), inset 0 0 0 1px rgba(255,255,255,.08);
+        }
+        .inventory-title {
+            padding:.65rem .85rem;
+            color:#fff36b;
+            font-weight:950;
+            letter-spacing:.05em;
+            background:rgba(0,0,0,.22);
+            border-bottom:1px solid rgba(255,255,255,.28);
+        }
+        .inventory-row {
+            display:grid;
+            grid-template-columns:1.5fr .8fr .8fr .8fr;
+            align-items:center;
+            min-height:2.25rem;
+            border-bottom:1px solid rgba(255,255,255,.25);
+        }
+        .inventory-row:last-child { border-bottom:0; }
+        .inventory-row.header {
+            color:#d8d8c8;
+            font-size:.88rem;
+            font-weight:800;
+            background:rgba(255,255,255,.05);
+        }
+        .inventory-cell {
+            padding:.42rem .65rem;
+            color:#fff8d8;
+            font-weight:800;
+            border-right:1px solid rgba(255,255,255,.22);
+            word-break:break-word;
+        }
+        .inventory-cell:last-child { border-right:0; }
+        .inventory-empty { padding:1rem; color:#d8c8aa; font-weight:800; }
         .admin-panel { padding:1.1rem 1.2rem; border-radius:20px; background:rgba(23,17,14,.86); border:1px solid rgba(255,255,255,.1); margin-bottom:1rem; }
         [data-testid="stDataFrame"], [data-testid="stDataEditor"] { border-radius:16px; overflow:hidden; }
         .tiny-admin { text-align:center; margin-top:1.5rem; opacity:.58; }
@@ -956,7 +1083,7 @@ def apply_global_styles() -> None:
             user-select:none;
         }
         @media(max-width:700px){
-            .block-container{padding-left:.25rem;padding-right:.25rem}.event-title{font-size:1rem}.event-subtitle{display:none}.status-pill{font-size:.72rem}.pot-grid{width:min(98vw,610px);gap:4px}.poster-title{font-size:1.75rem;-webkit-text-stroke:1.2px #2b120d}.poster-start{font-size:1.55rem}.poster-food{width:82%;bottom:-20px}.poster-side{width:62px;height:105px}.poster-herb{width:72px;height:92px}
+            .block-container{padding-left:.25rem;padding-right:.25rem}.event-title{font-size:1rem}.event-subtitle{display:none}.status-pill{font-size:.72rem}.pot-grid{width:min(98vw,610px);gap:4px}.poster-title{font-size:1.75rem;-webkit-text-stroke:1.2px #2b120d}.poster-start{font-size:1.55rem}.poster-food{width:82%;bottom:-20px}.poster-side{width:62px;height:105px}.poster-herb{width:72px;height:92px}.inventory-grid{grid-template-columns:1fr}
         }
         </style>
         """,
@@ -1179,6 +1306,9 @@ def render_admin_page() -> None:
             "quantity",
         ].fillna(0).astype(int).sum()
     )
+    saved_total_quantity = str(settings.get("prize_total_quantity", "")).strip()
+    if saved_total_quantity.isdigit():
+        default_total_quantity = int(saved_total_quantity)
     default_prize_count = max(1, len(active_prizes) if not active_prizes.empty else len(prize_df))
 
     st.info("範例：總數量 100，折價券 10%、小菜一份 20%、未中獎 70%。系統會自動算出折價券 10 張、小菜 20 份；未中獎不限量。")
@@ -1255,14 +1385,17 @@ def render_admin_page() -> None:
     if save_prize_settings:
         try:
             save_prizes(edited)
+            set_settings({"prize_total_quantity": int(total_quantity)})
             st.success("獎品設定已儲存。")
             st.rerun()
         except Exception as exc:
             st.error(str(exc))
 
+    records = all_draws(limit=500)
+    render_inventory_summary(records)
+
     st.divider()
     st.markdown("### 抽獎紀錄")
-    records = all_draws(limit=500)
     if records.empty:
         st.info("尚無抽獎紀錄。")
     else:

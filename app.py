@@ -442,6 +442,39 @@ def customer_draws(customer_no: int) -> list[dict[str, Any]]:
         return rows_to_dicts(cursor)
 
 
+def latest_customer_result(customer_no: int, remaining: int) -> dict[str, Any] | None:
+    with db_connection() as conn:
+        row = row_to_dict(
+            conn.execute(
+                """
+                SELECT d.id, d.customer_no, d.draw_no, d.pot_name, d.prize_id,
+                       d.prize_name, d.prize_emoji, d.is_win,
+                       COALESCE(NULLIF(p.result_text, ''), d.prize_name) AS result_text
+                FROM draws d
+                LEFT JOIN prizes p ON p.id = d.prize_id
+                WHERE d.customer_no = ?
+                ORDER BY d.id DESC
+                LIMIT 1
+                """,
+                (customer_no,),
+            )
+        )
+    if row is None:
+        return None
+    return {
+        "id": int(row["id"]),
+        "customer_no": int(row["customer_no"]),
+        "draw_no": int(row["draw_no"]),
+        "pot_name": str(row["pot_name"]),
+        "prize_id": int(row["prize_id"]) if row["prize_id"] is not None else 0,
+        "name": str(row["prize_name"]),
+        "emoji": str(row["prize_emoji"]),
+        "is_win": bool(row["is_win"]),
+        "result_text": str(row["result_text"] or row["prize_name"]),
+        "remaining": max(0, int(remaining)),
+    }
+
+
 def all_draws(limit: int = 500) -> pd.DataFrame:
     with db_connection() as conn:
         cursor = conn.execute(
@@ -1179,6 +1212,11 @@ def render_lottery_page() -> None:
         return
 
     result = st.session_state.get("last_result")
+    if not result and int(status["used"]) > 0:
+        result = latest_customer_result(int(status["customer_no"]), int(status["remaining"]))
+        if result:
+            st.session_state.last_result = result
+            st.session_state.balloons_shown = False
     if result and int(result.get("customer_no", -1)) == status["customer_no"]:
         render_result(result)
         done_label = "完成，下一位客人" if int(result.get("remaining", 0)) <= 0 else "完成，繼續抽"

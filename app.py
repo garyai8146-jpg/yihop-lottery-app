@@ -1196,7 +1196,61 @@ def apply_global_styles() -> None:
         @media(max-width:700px){
             .block-container{padding-left:.25rem;padding-right:.25rem}.event-title{font-size:1rem}.event-subtitle{display:none}.status-pill{font-size:.72rem}.pot-grid{width:min(98vw,610px);gap:4px}.poster-title{font-size:1.75rem;-webkit-text-stroke:1.2px #2b120d}.poster-start{font-size:1.55rem}.poster-food{width:82%;bottom:-20px}.poster-side{width:62px;height:105px}.poster-herb{width:72px;height:92px}.inventory-grid{grid-template-columns:1fr}
         }
-        </style>
+                /* YIHOP_RESULT_READABILITY_V6 */
+        .result-card {
+            max-width: 880px;
+            margin: .7rem auto 1rem;
+            padding: 2.35rem 1.6rem 2.55rem;
+        }
+        .result-emoji {
+            font-size: clamp(5.4rem, 12vw, 7.2rem);
+            line-height: 1;
+        }
+        .result-kicker {
+            margin-top: .8rem;
+            color: #ffe1a7;
+            font-size: clamp(1.2rem, 3vw, 1.65rem);
+            font-weight: 900;
+            letter-spacing: .08em;
+        }
+        .result-name {
+            margin: .55rem 0 1.15rem;
+            color: #fff0bd;
+            font-size: clamp(3.25rem, 9vw, 5.4rem);
+            line-height: 1.15;
+            font-weight: 950;
+        }
+        .redeem-hint {
+            margin-top: 1rem;
+            color: #fffaf0;
+            font-size: clamp(1.45rem, 3.8vw, 2rem);
+            line-height: 1.4;
+            font-weight: 950;
+        }
+        @media(max-width:700px) {
+            .result-card {
+                padding: 1.65rem .9rem 1.9rem;
+                border-width: 3px;
+            }
+            .result-emoji {
+                font-size: 4.8rem;
+            }
+            .result-kicker {
+                font-size: 1.12rem;
+            }
+            .result-name {
+                font-size: clamp(2.75rem, 12vw, 3.8rem);
+                line-height: 1.16;
+            }
+            .redeem-hint {
+                font-size: 1.35rem;
+            }
+            div[data-testid="stButton"] > button {
+                min-height: 3.1rem;
+                font-size: 1.16rem;
+            }
+        }
+</style>
         """,
         unsafe_allow_html=True,
     )
@@ -1231,13 +1285,9 @@ def image_data_uri(relative_path: str) -> str:
     return f"data:image/webp;base64,{encoded}"
 
 
+# YIHOP_RESULT_CARD_SIMPLIFY_V6
 def render_result(result: dict[str, Any]) -> None:
     kicker = "恭喜中獎" if result["is_win"] else "謝謝參加"
-    ticket_no = (
-        f"{int(result.get('customer_no', 0)):04d}-"
-        f"{int(result.get('draw_no', 1)):02d}-"
-        f"{int(result.get('id', 0)):06d}"
-    )
     redeem_hint = "請向店員兌換獎品" if result["is_win"] else "感謝參加，請交還平板"
     st.markdown(
         f"""
@@ -1245,8 +1295,6 @@ def render_result(result: dict[str, Any]) -> None:
             <div class="result-emoji">{escape_html(result['emoji'])}</div>
             <div class="result-kicker">{kicker}・{escape_html(result['pot_name'])}</div>
             <div class="result-name">{escape_html(result['name'])}</div>
-            <div class="result-copy">{escape_html(result['result_text'])}</div>
-            <div class="ticket-meta">券號 {escape_html(ticket_no)}・參加序號 {escape_html(result['customer_no'])}</div>
             <div class="redeem-hint">{escape_html(redeem_hint)}</div>
         </div>
         """,

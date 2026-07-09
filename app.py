@@ -1095,7 +1095,13 @@ def render_admin_page() -> None:
     with top_left:
         st.markdown("# 藝鍋物抽獎管理後台")
     with top_right:
-        st.link_button("返回抽獎頁面", "?page=lottery&admin=0", type="primary", width="stretch")
+        if st.button("返回抽獎頁面", width="stretch", type="primary"):
+            st.session_state.force_lottery_page = True
+            st.session_state.pop("last_result", None)
+            st.session_state.pop("balloons_shown", None)
+            st.query_params["page"] = "lottery"
+            st.query_params["admin"] = "0"
+            st.rerun()
 
     status = current_status()
     metric_cols = st.columns(4)

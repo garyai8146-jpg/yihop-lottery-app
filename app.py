@@ -189,6 +189,11 @@ def get_setting(key: str, default: str = "") -> str:
     return str(row["value"]) if row else default
 
 
+def get_setting_in_transaction(conn: Any, key: str, default: str = "") -> str:
+    row = row_to_dict(conn.execute("SELECT value FROM settings WHERE key = ?", (key,)))
+    return str(row["value"]) if row else default
+
+
 def get_settings() -> dict[str, str]:
     with db_connection() as conn:
         rows = rows_to_dicts(conn.execute("SELECT key, value FROM settings"))
@@ -368,11 +373,7 @@ def next_customer() -> None:
     with db_connection() as conn:
         conn.execute("BEGIN IMMEDIATE")
         try:
-            current = int(
-                conn.execute(
-                    "SELECT value FROM settings WHERE key = 'current_customer_no'"
-                ).fetchone()[0]
-            )
+            current = int(get_setting_in_transaction(conn, "current_customer_no", "1"))
             conn.execute(
                 "UPDATE settings SET value = ? WHERE key = 'current_customer_no'",
                 (str(current + 1),),
@@ -398,17 +399,9 @@ def undo_last_draw() -> str:
             if prize and int(prize["quantity"]) > 0 and int(prize["issued"]) > 0:
                 conn.execute("UPDATE prizes SET issued = issued - 1 WHERE id = ?", (row["prize_id"],))
 
-            current_customer = int(
-                conn.execute(
-                    "SELECT value FROM settings WHERE key = 'current_customer_no'"
-                ).fetchone()[0]
-            )
+            current_customer = int(get_setting_in_transaction(conn, "current_customer_no", "1"))
             if int(row["customer_no"]) == current_customer:
-                used = int(
-                    conn.execute(
-                        "SELECT value FROM settings WHERE key = 'current_draws_used'"
-                    ).fetchone()[0]
-                )
+                used = int(get_setting_in_transaction(conn, "current_draws_used", "0"))
                 conn.execute(
                     "UPDATE settings SET value = ? WHERE key = 'current_draws_used'",
                     (str(max(0, used - 1)),),
@@ -568,7 +561,7 @@ def save_prizes(edited: pd.DataFrame) -> None:
         conn.execute("BEGIN IMMEDIATE")
         try:
             existing_ids = {
-                int(row[0]) for row in conn.execute("SELECT id FROM prizes").fetchall()
+                int(row["id"]) for row in rows_to_dicts(conn.execute("SELECT id FROM prizes"))
             }
             submitted_ids: set[int] = set()
             for row in clean_rows:

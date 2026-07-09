@@ -335,7 +335,7 @@ def perform_draw(pot_name: str) -> dict[str, Any]:
                 "UPDATE settings SET value = ? WHERE key = 'current_draws_used'",
                 (str(new_used),),
             )
-            created_at = datetime.now().astimezone().isoformat(timespec="seconds")
+            created_at = datetime.now(TAIPEI_TZ).isoformat(timespec="seconds")
             conn.execute(
                 """
                 INSERT INTO draws
@@ -508,7 +508,7 @@ def set_draw_redeemed(draw_id: int, redeemed: bool) -> None:
                 "UPDATE draws SET redeemed = ?, redeemed_at = ? WHERE id = ?",
                 (
                     1 if redeemed else 0,
-                    datetime.now().astimezone().isoformat(timespec="seconds") if redeemed else "",
+                    datetime.now(TAIPEI_TZ).isoformat(timespec="seconds") if redeemed else "",
                     draw_id,
                 ),
             )
@@ -642,6 +642,7 @@ def render_inventory_summary(records: pd.DataFrame) -> None:
     )
 
 
+# YIHOP_LIVE_INVENTORY_FLOOR_V2
 def save_prizes(edited: pd.DataFrame) -> None:
     clean_rows: list[dict[str, Any]] = []
     for _, raw in edited.iterrows():
@@ -660,6 +661,8 @@ def save_prizes(edited: pd.DataFrame) -> None:
         else:
             is_win = bool(is_win_value)
         row_id = raw.get("id")
+        issued_raw = raw.get("issued", 0)
+        issued = 0 if pd.isna(issued_raw) else max(0, int(issued_raw))
         clean_rows.append(
             {
                 "id": None if pd.isna(row_id) else int(row_id),
@@ -667,6 +670,7 @@ def save_prizes(edited: pd.DataFrame) -> None:
                 "emoji": emoji,
                 "probability": round(float(raw.get("probability", 0.0)), 4),
                 "quantity": int(raw.get("quantity", 0)),
+                "issued": issued,
                 "enabled": 1 if bool(raw.get("enabled", True)) else 0,
                 "is_win": 1 if is_win else 0,
                 "result_text": result_text or name,
@@ -679,6 +683,20 @@ def save_prizes(edited: pd.DataFrame) -> None:
         raise ValueError("中獎機率不能小於 0。")
     if any(row["quantity"] < 0 for row in clean_rows):
         raise ValueError("獎品數量不能小於 0。")
+
+    invalid_inventory = [
+        row
+        for row in clean_rows
+        if row["id"] is not None
+        and row["quantity"] > 0
+        and row["quantity"] < row["issued"]
+    ]
+    if invalid_inventory:
+        details = "、".join(
+            f"{row['name']}（已抽出 {row['issued']}，總數量 {row['quantity']}）"
+            for row in invalid_inventory
+        )
+        raise ValueError(f"總數量不可低於已抽出數量：{details}")
 
     enabled_total = sum(row["probability"] for row in clean_rows if row["enabled"])
     if abs(enabled_total - 100.0) > 0.001:
@@ -700,8 +718,13 @@ def save_prizes(edited: pd.DataFrame) -> None:
                         VALUES (?, ?, ?, ?, 0, ?, ?, ?)
                         """,
                         (
-                            row["name"], row["emoji"], row["probability"], row["quantity"],
-                            row["enabled"], row["is_win"], row["result_text"],
+                            row["name"],
+                            row["emoji"],
+                            row["probability"],
+                            row["quantity"],
+                            row["enabled"],
+                            row["is_win"],
+                            row["result_text"],
                         ),
                     )
                 else:
@@ -714,8 +737,14 @@ def save_prizes(edited: pd.DataFrame) -> None:
                         WHERE id = ?
                         """,
                         (
-                            row["name"], row["emoji"], row["probability"], row["quantity"],
-                            row["enabled"], row["is_win"], row["result_text"], row["id"],
+                            row["name"],
+                            row["emoji"],
+                            row["probability"],
+                            row["quantity"],
+                            row["enabled"],
+                            row["is_win"],
+                            row["result_text"],
+                            row["id"],
                         ),
                     )
             removed_ids = existing_ids - submitted_ids
@@ -1202,6 +1231,7 @@ def render_pot_grid() -> int | None:
     return int(selected)
 
 
+# YIHOP_LIVE_RESULT_RERUN_FIX_V2
 def render_lottery_page() -> None:
     status = current_status()
     render_header(status)
@@ -1211,12 +1241,17 @@ def render_lottery_page() -> None:
         render_admin_link()
         return
 
+    pending_error = st.session_state.pop("draw_error", None)
+    if pending_error:
+        st.error(str(pending_error))
+
     result = st.session_state.get("last_result")
     if not result and int(status["used"]) > 0:
         result = latest_customer_result(int(status["customer_no"]), int(status["remaining"]))
         if result:
             st.session_state.last_result = result
             st.session_state.balloons_shown = False
+
     if result and int(result.get("customer_no", -1)) == status["customer_no"]:
         render_result(result)
         done_label = "完成，下一位客人" if int(result.get("remaining", 0)) <= 0 else "完成，繼續抽"
@@ -1242,15 +1277,20 @@ def render_lottery_page() -> None:
     if selected_draw is not None:
         try:
             draw_index = int(selected_draw)
+            if draw_index < 0 or draw_index >= len(POT_THEMES):
+                raise ValueError("無效的火鍋選項，請重新選擇。")
             theme = POT_THEMES[draw_index]
             draw_result = perform_draw(theme["name"])
+        except Exception as exc:
+            st.session_state.draw_error = str(exc)
+            st.session_state.draw_widget_version = int(st.session_state.get("draw_widget_version", 0)) + 1
+        else:
             st.session_state.draw_widget_version = int(st.session_state.get("draw_widget_version", 0)) + 1
             st.session_state.last_result = draw_result
             st.session_state.balloons_shown = False
-            st.rerun()
-        except Exception as exc:
-            st.error(str(exc))
-            render_pot_grid()
+
+        # Keep Streamlit rerun outside the broad exception handler.
+        st.rerun()
 
     render_admin_link()
 

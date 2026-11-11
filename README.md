@@ -1,81 +1,35 @@
-# 藝鍋物｜開鍋抽好禮
+# 藝鍋物｜開鍋抽好禮（Streamlit 抽獎原型）
 
-這是一個適合櫃檯平板使用的 Streamlit 抽獎網頁。客人可從四格火鍋海報中選一格；火鍋只是互動選擇，真正結果由 Python 後端依照後台設定的機率與庫存即時決定。
+> 為門市平板設計的四格開鍋互動，抽獎結果由 Python 程式依獎項設定與庫存決定，並保留抽獎紀錄。
 
-## 已完成
+[GitHub 面試作品導覽](https://github.com/garyai8146-jpg/Yihop_LineBOT/blob/main/PORTFOLIO.md)
 
-- 藝鍋物風格：四格滿版火鍋抽抽樂海報、蒸氣與開鍋動畫
-- 固定四格抽獎頁
-- 好運紅鍋、黃金旺鍋、招財辣鍋、幸福暖鍋
-- 每位客人可抽次數設定
-- 獎品名稱、圖示、機率、數量、是否中獎與顯示文字設定
-- 數量 0 代表不限量
-- 庫存用完後自動停止抽出該獎項
-- 下一位客人、撤銷最後一抽、暫停活動
-- 抽獎紀錄與 CSV 匯出
-- SQLite 持久化與交易鎖，重新整理不會重複發獎
-- 免 PIN 管理後台
+## 功能
 
-## Windows 一鍵啟動
+- 四格火鍋互動介面與動畫。
+- 獎項、機率、庫存、未中獎項目的後台設定。
+- 庫存為 0 時的獎項分配處理、抽獎紀錄及 CSV 匯出。
+- 透過 SQLite 保存資料；可選擇以外部 libSQL／Turso 設定運作，需另行驗證部署環境。
 
-1. 將 `app.py`、`requirements.txt`、`start_yihop_lottery.bat` 放在同一個資料夾。
-2. 雙擊 `start_yihop_lottery.bat`。
-3. 首次執行會自動建立 `.venv` 並安裝套件。
-4. 瀏覽器開啟 `http://localhost:8501`。
+## 本機操作
 
-管理後台：`http://localhost:8501/?admin=1`
-
-## 同一個 Wi-Fi 讓平板開啟
-
-啟動電腦與平板連到同一個 Wi-Fi，平板瀏覽器輸入：
-
-```text
-http://電腦的區域網路IP:8501
+```powershell
+python -m pip install -r requirements.txt
+streamlit run app.py
 ```
 
-例如：
+或 Windows 雙擊 `start_yihop_lottery.bat`。顧客操作頁預設為 `http://localhost:8501`；後台目前以 `?admin=1` 進入。
 
-```text
-http://192.168.1.35:8501
-```
+## 重要安全限制（面試前請閱讀）
 
-Windows 可在命令提示字元執行 `ipconfig`，查看目前網卡的 IPv4 位址。第一次連線時，Windows 防火牆可能詢問是否允許 Python／Streamlit，請允許私人網路。
+**目前管理頁沒有強制執行身分驗證，不能將這個版本直接公開上網供真實活動使用。** 雖然程式初始化會保存 `admin_pin_hash`，但進入管理頁並未驗證 PIN；設定 `LOTTERY_ADMIN_PIN` 並不能補足這個缺口。
 
-## 後台機率規則
+因此現階段僅適合**可信任的本機測試環境**展示，避免對不可信任的 Wi-Fi／網路開放連接埠。上線前需補上伺服器端授權、強制驗證、暴力嘗試限制，並使用受控資料庫與持久化備份。對外公開部署需完成獨立資安驗收。
 
-- 所有「啟用」獎項的機率合計必須為 100%。
-- 獎品數量填 `0` 代表不限量。
-- 有限量獎品抽完後，原本屬於它的機率會落到可用的「未中獎」項目，不會提高其他獎品的機率。
-- 建議保留一個不限量的「好運正在熬煮中」獎項，避免全部有限庫存用完後無法抽獎。
+## 資料持久化
 
-## 資料檔案
+本機預設建立 `lottery.db`。可透過 `LOTTERY_DB_PATH` 指定路徑。SQLite 檔案應排除 Git 並定期備份；Streamlit Community Cloud 的本機儲存空間不能視為永久可靠資料庫。
 
-系統首次啟動後，會在程式資料夾建立：
+## 面試展示重點
 
-```text
-lottery.db
-```
-
-請定期備份此檔案。刪除它會使系統回到初始資料。
-
-也可用環境變數指定資料庫位置：
-
-```text
-LOTTERY_DB_PATH=D:\LotteryData\lottery.db
-```
-
-## 雲端部署提醒
-
-本專案可部署到 Streamlit Community Cloud：
-
-1. 將專案推到 GitHub repo。
-2. 到 <https://share.streamlit.io/> 選擇該 repo。
-3. Main file path 填 `app.py`。
-4. Python 版本由 `runtime.txt` 指定為 `python-3.12`。
-5. 部署完成後，管理後台網址為：
-
-```text
-https://你的streamlit網址/?admin=1
-```
-
-SQLite 適合先在本機、區域網路，或測試版雲端使用。Streamlit Community Cloud 不保證本機檔案永久保存，重啟或重新部署後 `lottery.db` 可能回到初始資料；正式營運時應改用 PostgreSQL、Supabase 等雲端資料庫，或改部署到有持久磁碟的平台。
+可展示事件式抽獎 UI、有限獎品的機率分配規則、SQLite 狀態更新，以及如何把原型升級為有權限、稽核與交易保護的正式服務。不要把現有管理頁稱為已安全部署。

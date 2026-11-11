@@ -1,0 +1,38 @@
+name: Security and syntax checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  admin-security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Compile Python files
+        run: python -m py_compile app.py admin_security.py tests/test_admin_security.py
+      - name: Check admin login regressions
+        run: python -m unittest discover -s tests -v
+      - name: Ensure admin page has a guard
+        run: |
+          python - <<'PY'
+          import ast
+          from pathlib import Path
+          app = ast.parse(Path('app.py').read_text(encoding='utf-8'))
+          functions = {n.name:n for n in app.body if isinstance(n, ast.FunctionDef)}
+          assert 'require_admin_access' in functions
+          admin = functions['render_admin_page']
+          assert admin.body and isinstance(admin.body[0], ast.If)
+          condition = admin.body[0].test
+          assert isinstance(condition, ast.UnaryOp) and isinstance(condition.op, ast.Not)
+          assert isinstance(condition.operand, ast.Call) and getattr(condition.operand.func, 'id', '') == 'require_admin_access'
+          assert isinstance(admin.body[0].body[0], ast.Return)
+          print('Admin access is enforced before rendering.')
+          PY

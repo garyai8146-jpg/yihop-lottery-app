@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import base64
 import hashlib
+from admin_security import pin_fingerprint, pin_is_configured, session_is_authorized, verify_admin_pin
 import io
 import os
 import random
@@ -27,7 +28,6 @@ APP_DIR = Path(__file__).resolve().parent
 DB_PATH = Path(os.getenv("LOTTERY_DB_PATH", APP_DIR / "lottery.db"))
 COMPONENT_DIR = APP_DIR / "components" / "clickable_pots"
 clickable_pots = components.declare_component("clickable_pots_opening_fx_v8", path=str(COMPONENT_DIR))
-DEFAULT_ADMIN_PIN = os.getenv("LOTTERY_ADMIN_PIN", "1688")
 TAIPEI_TZ_LABEL = "Asia/Taipei"
 TAIPEI_TZ = ZoneInfo(TAIPEI_TZ_LABEL)
 
@@ -106,8 +106,34 @@ def get_config_value(*names: str) -> str:
     return ""
 
 
-def pin_hash(pin: str) -> str:
-    return hashlib.sha256(pin.encode("utf-8")).hexdigest()
+def require_admin_access() -> bool:
+    """Block every admin view unless a configured PIN has been checked."""
+    configured_pin = get_config_value("LOTTERY_ADMIN_PIN")
+    if not pin_is_configured(configured_pin):
+        st.error("管理功能暫時停用：請先在伺服器設定至少 12 字元的 LOTTERY_ADMIN_PIN。")
+        st.caption("不要使用預設密碼或把 PIN 寫在 GitHub。")
+        return False
+
+    if session_is_authorized(
+        st.session_state.get("_lottery_admin_fingerprint"), configured_pin
+    ):
+        if st.button("登出管理後台", key="lottery_admin_logout"):
+            st.session_state.pop("_lottery_admin_fingerprint", None)
+            st.rerun()
+        return True
+
+    st.markdown("## 管理員登入")
+    st.caption("這是管理用畫面，請輸入管理 PIN 後繼續。")
+    with st.form("lottery_admin_login", clear_on_submit=True):
+        candidate_pin = st.text_input("管理 PIN", type="password")
+        login_pressed = st.form_submit_button("登入管理後台")
+    if login_pressed:
+        if verify_admin_pin(candidate_pin, configured_pin):
+            st.session_state["_lottery_admin_fingerprint"] = pin_fingerprint(configured_pin)
+            st.rerun()
+        else:
+            st.error("PIN 不正確，無法進入管理後台。")
+    return False
 
 
 def init_database() -> None:
@@ -161,7 +187,6 @@ def init_database() -> None:
             "activity_enabled": "1",
             "current_customer_no": "1",
             "current_draws_used": "0",
-            "admin_pin_hash": pin_hash(DEFAULT_ADMIN_PIN),
         }
         for key, value in defaults.items():
             conn.execute(
@@ -1438,6 +1463,8 @@ def render_admin_link() -> None:
 
 
 def render_admin_page() -> None:
+    if not require_admin_access():
+        return
     st.markdown("# 藝鍋物抽獎管理後台")
 
     total_draws = total_draw_count()
